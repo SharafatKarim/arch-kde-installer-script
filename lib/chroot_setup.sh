@@ -199,6 +199,10 @@ if [ "$ENABLE_SNAPPER" = true ]; then
         fi
     fi
 
+    # Ensure /.snapshots directory exists and is mounted
+    run_cmd mkdir -p /.snapshots
+    run_cmd mount -a 2>/dev/null || true
+
     # Set secure permissions on /.snapshots mount point
     run_cmd chmod 750 /.snapshots
     run_cmd chown :wheel /.snapshots 2>/dev/null || true
