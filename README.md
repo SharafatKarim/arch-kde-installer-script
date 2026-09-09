@@ -1,8 +1,18 @@
 # Arch Linux + Btrfs + Minimal KDE Plasma Installer
 
 An automated, interactive installer script for Arch Linux based on the architecture detailed in the following guides:
+
 - [Part 1: Arch Linux Minimal Install with Btrfs](https://sharafat.pages.dev/archlinux-install/)
 - [Part 2: Arch Linux Post-Install with Minimal Plasma](https://sharafat.pages.dev/archlinux-post-install/)
+
+```text
+    _             _       _     _                  
+   / \   _ __ ___| |__   | |   (_)_ __  _   ___  __
+  / _ \ | '__/ __| '_ \  | |   | | '_ \| | | \ \/ /
+ / ___ \| | | (__| | | | | |___| | | | | |_| |>  < 
+/_/   \_\_|  \___|_| |_| |_____|_|_| |_|\__,_/_/\_\
+         Arch Linux + Btrfs + KDE Plasma Installer
+```
 
 ## Architecture: Two-Stage Workflow for Maximum Stability
 
@@ -27,18 +37,24 @@ An automated, interactive installer script for Arch Linux based on the architect
 1. Boot into the official Arch Linux live ISO (UEFI mode).
 2. Connect to the internet (`nmtui` for Wi-Fi or plug in Ethernet).
 3. Update `archlinux-keyring` & install `git`:
+
    ```bash
    pacman -Sy archlinux-keyring git --noconfirm
    ```
+
 4. Clone this repository:
+
    ```bash
    git clone https://github.com/SharafatKarim/arch-kde-installer-script.git
    cd arch-kde-installer-script
    ```
+
 5. Run the installer:
+
    ```bash
    sudo ./install.sh
    ```
+
 6. When prompted, reboot into your new installation.
 
 ### Stage 2: Post-Installation & Tuning (From Installed System)
@@ -46,6 +62,7 @@ An automated, interactive installer script for Arch Linux based on the architect
 1. Log into your new KDE Plasma desktop.
 2. Open Konsole / Terminal in your home directory.
 3. Run the post-installer script:
+
    ```bash
    ./post-install.sh
    ```
