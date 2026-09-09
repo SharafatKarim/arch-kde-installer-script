@@ -180,80 +180,11 @@ if [ "$INSTALL_DESKTOP" = true ]; then
     msg_ok "plasma-login-manager (plasmalogin.service) enabled."
 fi
 
-# Snapper, snap-pac, grub-btrfs Setup
-if [ "$ENABLE_SNAPPER" = true ]; then
-    msg_step "Configuring Snapper & GRUB Bootable Snapshots"
-    run_cmd pacman -S --noconfirm --needed snapper snap-pac grub-btrfs
-
-    # Configure Snapper root config declaratively (create-config uses DBus which isn't running in chroot)
-    run_cmd mkdir -p /etc/snapper/configs
-    run_cmd cp /usr/share/snapper/config-templates/default /etc/snapper/configs/root
-
-    # Ensure root configuration is registered in snapper global config
-    if ! grep -q "^SNAPPER_CONFIGS=" /etc/conf.d/snapper 2>/dev/null; then
-        run_cmd mkdir -p /etc/conf.d
-        run_eval "echo 'SNAPPER_CONFIGS=\"root\"' > /etc/conf.d/snapper"
-    else
-        if ! grep -q '"root"' /etc/conf.d/snapper; then
-            run_cmd sed -i 's/^SNAPPER_CONFIGS="\(.*\)"/SNAPPER_CONFIGS="\1 root"/' /etc/conf.d/snapper
-        fi
-    fi
-
-    # Ensure /.snapshots directory exists and is mounted
-    run_cmd mkdir -p /.snapshots
-    run_cmd mount -a 2>/dev/null || true
-
-    # Set secure permissions on /.snapshots mount point
-    run_cmd chmod 750 /.snapshots
-    run_cmd chown :wheel /.snapshots 2>/dev/null || true
-
-    # Enable snapper timers
-    run_cmd systemctl enable snapper-timeline.timer
-    run_cmd systemctl enable snapper-cleanup.timer
-
-    # Enable grub-btrfsd
-    run_cmd systemctl enable grub-btrfsd.service
-
-    # Regenerate GRUB configuration to include snapshot hooks
-    run_cmd grub-mkconfig -o /boot/grub/grub.cfg
-    msg_ok "Snapper & GRUB snapshot boot integration complete."
-fi
-
-# Performance & Memory Management (Swapfile & zram)
-if [ "$SWAP_TYPE" = "btrfs" ] && [ -n "$SWAP_SIZE" ]; then
-    msg_step "Configuring Btrfs Swapfile (${SWAP_SIZE}G)"
-    if [ ! -f /swapfile ]; then
-        run_cmd btrfs filesystem mkswapfile --size "${SWAP_SIZE}g" --uuid clear /swapfile
-    fi
-    run_cmd swapon /swapfile 2>/dev/null || true
-    if ! grep -q "/swapfile" /etc/fstab; then
-        run_eval "echo '/swapfile none swap defaults 0 0' >> /etc/fstab"
-    fi
-    msg_ok "Btrfs swapfile configured."
-fi
-
-if [ "$ENABLE_ZRAM" = true ]; then
-    msg_step "Configuring zram-generator"
-    run_cmd pacman -S --noconfirm --needed zram-generator
-    if [ -f /root/installer/zram-generator.conf ]; then
-        run_cmd cp /root/installer/zram-generator.conf /etc/systemd/zram-generator.conf
-    elif [ -f /tmp/zram-generator.conf ]; then
-        run_cmd cp /tmp/zram-generator.conf /etc/systemd/zram-generator.conf
-    fi
-    msg_ok "zram-generator configured."
-fi
-
-if [ "$ENABLE_TRIM" = true ]; then
-    msg_step "Enabling Periodic SSD TRIM"
-    run_cmd systemctl enable fstrim.timer
-    msg_ok "fstrim.timer enabled."
-fi
-
-# Optional Bluetooth & Audio extras
+# Optional Bluetooth
 if [ "$ENABLE_BLUETOOTH" = true ]; then
     msg_step "Installing & Enabling Bluetooth"
     run_cmd pacman -S --noconfirm --needed bluez bluez-utils bluedevil
     run_cmd systemctl enable bluetooth.service
 fi
 
-msg_ok "Chroot configuration completed successfully!"
+msg_ok "Chroot base installation completed successfully!"

@@ -1,0 +1,244 @@
+#!/usr/bin/env bash
+# post-install.sh - Interactive Arch Linux Post-Installation & Tuning Script
+# Based on: https://sharafat.pages.dev/archlinux-post-install/
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Color definitions
+BOLD='\033[1m'
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
+RESET='\033[0m'
+
+msg_info() { echo -e "${BLUE}${BOLD}[*]${RESET} $1"; }
+msg_ok()   { echo -e "${GREEN}${BOLD}[✓]${RESET} $1"; }
+msg_warn() { echo -e "${YELLOW}${BOLD}[!]${RESET} $1"; }
+msg_err()  { echo -e "${RED}${BOLD}[✗]${RESET} $1"; }
+msg_step() { echo -e "\n${MAGENTA}${BOLD}=== $1 ===${RESET}"; }
+
+run_cmd() {
+    echo -e "${CYAN}${BOLD}> RUNNING:${RESET} ${YELLOW}$*${RESET}"
+    "$@"
+}
+
+run_eval() {
+    echo -e "${CYAN}${BOLD}> RUNNING:${RESET} ${YELLOW}$*${RESET}"
+    eval "$@"
+}
+
+prompt_input() {
+    local prompt_text="$1"
+    local default_val="$2"
+    local var_name="$3"
+    local user_val=""
+
+    if [ -n "$default_val" ]; then
+        echo -ne "${BOLD}${prompt_text} [${GREEN}${default_val}${RESET}${BOLD}]: ${RESET}"
+    else
+        echo -ne "${BOLD}${prompt_text}: ${RESET}"
+    fi
+
+    read -r user_val
+    if [ -z "$user_val" ]; then
+        eval "$var_name=\"$default_val\""
+    else
+        eval "$var_name=\"$user_val\""
+    fi
+}
+
+prompt_yes_no() {
+    local prompt_text="$1"
+    local default_choice="$2" # "Y" or "N"
+    local var_name="$3"
+    local choice=""
+
+    local options="[y/n]"
+    [ "$default_choice" = "Y" ] && options="[${GREEN}Y${RESET}/n]"
+    [ "$default_choice" = "N" ] && options="[y/${GREEN}N${RESET}]"
+
+    while true; do
+        echo -ne "${BOLD}${prompt_text} ${options}: ${RESET}"
+        read -r choice
+        choice=$(echo "$choice" | tr '[:upper:]' '[:lower:]')
+
+        if [ -z "$choice" ]; then
+            choice=$(echo "$default_choice" | tr '[:upper:]' '[:lower:]')
+        fi
+
+        if [ "$choice" = "y" ] || [ "$choice" = "yes" ]; then
+            eval "$var_name=true"
+            break
+        elif [ "$choice" = "n" ] || [ "$choice" = "no" ]; then
+            eval "$var_name=false"
+            break
+        else
+            msg_warn "Please enter 'y' for yes or 'n' for no."
+        fi
+    done
+}
+
+clear
+echo -e "${CYAN}${BOLD}"
+cat << "BANNER"
+    _             _       _     _                  
+   / \   _ __ ___| |__   | |   (_)_ __  _   ___  __
+  / _ \ | '__/ __| '_ \  | |   | | '_ \| | | \ \/ /
+ / ___ \| | | (__| | | | | |___| | | | | |_| |>  < 
+/_/   \_\_|  \___|_| |_| |_____|_|_| |_|\__,_/_/\_\
+           POST-INSTALLATION & TUNING SCRIPT
+BANNER
+echo -e "${RESET}"
+
+msg_step "Pre-flight Environment Check"
+
+# Network test
+msg_info "Checking internet connection..."
+if ! ping -c 1 -W 3 1.1.1.1 >/dev/null 2>&1; then
+    msg_err "No active internet connection detected. Please connect to the internet first."
+    exit 1
+fi
+msg_ok "Internet connectivity verified."
+
+# Interactive Configuration
+msg_step "Post-Installation Options"
+
+prompt_yes_no "Configure Snapper & GRUB Bootable Snapshots (snapper, snap-pac, grub-btrfsd)?" "Y" SETUP_SNAPPER
+prompt_yes_no "Configure Btrfs Swapfile on dedicated @swap subvolume?" "Y" SETUP_SWAP
+if [ "$SETUP_SWAP" = true ]; then
+    prompt_input "Enter Swapfile size in GiB" "8" SWAP_SIZE
+fi
+
+prompt_yes_no "Configure zram-generator (compressed RAM swap)?" "Y" SETUP_ZRAM
+prompt_yes_no "Enable periodic SSD TRIM (fstrim.timer)?" "Y" SETUP_TRIM
+prompt_yes_no "Enable Chaotic-AUR and install yay AUR helper?" "Y" SETUP_CHAOTIC_AUR
+prompt_yes_no "Install extra utilities (fastfetch, libnotify, power-profiles-daemon)?" "Y" SETUP_EXTRAS
+
+# 1. Chaotic-AUR & yay
+if [ "$SETUP_CHAOTIC_AUR" = true ]; then
+    msg_step "Setting up Chaotic-AUR & yay"
+    run_cmd sudo pacman-key --recv-key 3056513887B78AEB --keyserver keyserver.ubuntu.com || true
+    run_cmd sudo pacman-key --lsign-key 3056513887B78AEB || true
+    run_cmd sudo pacman -U --noconfirm 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst' || true
+    run_cmd sudo pacman -U --noconfirm 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst' || true
+
+    if ! grep -q "\[chaotic-aur\]" /etc/pacman.conf; then
+        sudo bash -c "cat << 'EOF' >> /etc/pacman.conf
+
+[chaotic-aur]
+Include = /etc/pacman.d/chaotic-mirrorlist
+EOF"
+    fi
+
+    run_cmd sudo pacman -Sy --noconfirm
+    run_cmd sudo pacman -S --noconfirm --needed yay
+    msg_ok "Chaotic-AUR and yay configured."
+fi
+
+# 2. Snapper & GRUB Snapshots
+if [ "$SETUP_SNAPPER" = true ]; then
+    msg_step "Configuring Snapper & GRUB Snapshot Integration"
+    run_cmd sudo pacman -S --noconfirm --needed snapper snap-pac grub-btrfs inotify-tools
+
+    # Unmount /.snapshots if mounted
+    sudo umount /.snapshots 2>/dev/null || true
+    sudo rm -rf /.snapshots
+
+    # Create root snapper configuration
+    run_cmd sudo snapper -c root create-config /
+
+    # Delete default nested subvolume and mount our dedicated @snapshots subvolume
+    sudo btrfs subvolume delete /.snapshots 2>/dev/null || true
+    sudo mkdir -p /.snapshots
+    run_cmd sudo mount -a
+
+    # Set secure permissions
+    run_cmd sudo chmod 750 /.snapshots
+    run_cmd sudo chown :wheel /.snapshots 2>/dev/null || true
+
+    # Add root to SNAPPER_CONFIGS in /etc/conf.d/snapper if file exists
+    if [ -f /etc/conf.d/snapper ]; then
+        sudo sed -i 's/^SNAPPER_CONFIGS="\(.*\)"/SNAPPER_CONFIGS="\1 root"/' /etc/conf.d/snapper
+        sudo sed -i 's/  */ /g' /etc/conf.d/snapper
+    fi
+
+    # Enable systemd timers and grub-btrfsd
+    run_cmd sudo systemctl enable --now snapper-timeline.timer
+    run_cmd sudo systemctl enable --now snapper-cleanup.timer
+    run_cmd sudo systemctl enable --now grub-btrfsd.service
+
+    # Regenerate GRUB config
+    run_cmd sudo grub-mkconfig -o /boot/grub/grub.cfg
+    msg_ok "Snapper & GRUB snapshot integration complete."
+fi
+
+# 3. Swapfile Setup on @swap
+if [ "$SETUP_SWAP" = true ] && [ -n "$SWAP_SIZE" ]; then
+    msg_step "Configuring Btrfs Swapfile (${SWAP_SIZE}G)"
+    sudo mkdir -p /swap
+    # Ensure @swap is mounted
+    if ! mountpoint -q /swap; then
+        sudo mount -a 2>/dev/null || true
+    fi
+
+    if [ ! -f /swap/swapfile ]; then
+        run_cmd sudo btrfs filesystem mkswapfile --size "${SWAP_SIZE}g" --uuid clear /swap/swapfile
+    fi
+    run_cmd sudo swapon /swap/swapfile 2>/dev/null || true
+    if ! grep -q "/swap/swapfile" /etc/fstab; then
+        echo '/swap/swapfile none swap defaults 0 0' | sudo tee -a /etc/fstab
+    fi
+    msg_ok "Swapfile active at /swap/swapfile."
+fi
+
+# 4. zram-generator
+if [ "$SETUP_ZRAM" = true ]; then
+    msg_step "Configuring zram-generator"
+    run_cmd sudo pacman -S --noconfirm --needed zram-generator
+    if [ -f "${SCRIPT_DIR}/configs/zram-generator.conf" ]; then
+        sudo cp "${SCRIPT_DIR}/configs/zram-generator.conf" /etc/systemd/zram-generator.conf
+    else
+        sudo bash -c "cat << 'EOF' > /etc/systemd/zram-generator.conf
+[zram0]
+zram-size = ram / 2
+compression-algorithm = zstd
+EOF"
+    fi
+    run_cmd sudo systemctl daemon-reload
+    run_cmd sudo systemctl start /dev/zram0 2>/dev/null || true
+    msg_ok "zram-generator configured."
+fi
+
+# 5. SSD TRIM
+if [ "$SETUP_TRIM" = true ]; then
+    msg_step "Enabling SSD TRIM Timer"
+    run_cmd sudo systemctl enable --now fstrim.timer
+    msg_ok "fstrim.timer enabled."
+fi
+
+# 6. Extras & Utilities
+if [ "$SETUP_EXTRAS" = true ]; then
+    msg_step "Installing Extra Utilities"
+    run_cmd sudo pacman -S --noconfirm --needed fastfetch libnotify power-profiles-daemon
+    run_cmd sudo systemctl enable --now power-profiles-daemon.service 2>/dev/null || true
+    msg_ok "Extra utilities installed."
+fi
+
+echo -e "\n${GREEN}${BOLD}"
+cat << "CONGRATS"
+  _  __                                _       _ 
+ | |/ /___  _ __   __ _ _ __ __ _  ___| |  _  | |
+ | ' // _ \| '_ \ / _` | '__/ _` |/ __| | (_) | |
+ | . \ (_) | | | | (_| | | | (_| | (__|_|  _  |_|
+ |_|\_\___/|_| |_|\__, |_|  \__,_|\___(_) (_) (_)
+                  |___/                           
+     Post-Installation & Tuning Complete!
+CONGRATS
+echo -e "${RESET}"
+
+msg_ok "Kongrats! Your Arch Linux system is now fully tuned and snapshot-protected."

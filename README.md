@@ -4,39 +4,71 @@ An automated, interactive installer script for Arch Linux based on the architect
 - [Part 1: Arch Linux Minimal Install with Btrfs](https://sharafat.pages.dev/archlinux-install/)
 - [Part 2: Arch Linux Post-Install with Minimal Plasma](https://sharafat.pages.dev/archlinux-post-install/)
 
-## Quick Start (From Arch Live ISO)
+## Architecture: Two-Stage Workflow for Maximum Stability
+
+1. **Stage 1 (`install.sh`)**: Executed from the Arch Live ISO.
+   - Sets up Btrfs subvolumes (`@`, `@home`, `@pkg`, `@log`, `@snapshots`, `@swap`) and EFI boot partition.
+   - Bootstraps base system packages (`base`, `linux`, `sudo`, `grub`, `efibootmgr`, `networkmanager`).
+   - Configures users, passwords, locale, timezone, GPU drivers, and KDE Plasma (`plasma-desktop` or `plasma` group) with `plasma-login-manager`.
+   - Copies `post-install.sh` and configurations directly into your user's home folder.
+   - Installs GRUB and prepares the system for reboot.
+
+2. **Stage 2 (`post-install.sh`)**: Executed from your new KDE Plasma desktop.
+   - Sets up Snapper automated snapshotting with DBus active in the booted system.
+   - Configures `snap-pac` (pre/post pacman snapshots) and `grub-btrfs` / `grub-btrfsd` (boot into snapshots directly from GRUB).
+   - Configures Btrfs swapfile on `@swap` (`/swap/swapfile`) and ZRAM (`zram-generator`).
+   - Enables SSD TRIM timer (`fstrim.timer`).
+   - Optionally installs Chaotic-AUR repository, `yay` AUR helper, and utility packages.
+
+---
+
+## Quick Start
+
+### Stage 1: Base System & Desktop Installation (From Live ISO)
 
 1. Boot into the official Arch Linux live ISO (UEFI mode).
 2. Connect to the internet (`nmtui` for Wi-Fi or plug in Ethernet).
-3. Update the system packages, and `archlinux-keyring`:
+3. Update `archlinux-keyring` & install `git`:
    ```bash
-   pacman -Sy archlinux-keyring --noconfirm
+   pacman -Sy archlinux-keyring git --noconfirm
    ```
-4. Install `git`:
-   ```bash
-   pacman -Sy git --noconfirm
-   ```
-5. Clone or download this repository:
+4. Clone this repository:
    ```bash
    git clone https://github.com/SharafatKarim/arch-kde-installer-script.git
    cd arch-kde-installer-script
    ```
-6. Run the installer:
+5. Run the installer:
    ```bash
    sudo ./install.sh
    ```
+6. When prompted, reboot into your new installation.
+
+---
+
+### Stage 2: Post-Installation & Tuning (From Installed System)
+
+1. Log into your new KDE Plasma desktop.
+2. Open Konsole / Terminal in your home directory.
+3. Run the post-installer script:
+   ```bash
+   ./post-install.sh
+   ```
+
+---
 
 ## Repository Structure
 
 ```
 arch-kde-installer-script/
-├── install.sh             # Main interactive orchestrator
+├── install.sh             # Stage 1: Live ISO installer orchestrator
+├── post-install.sh        # Stage 2: Post-boot desktop configuration & tuning
 ├── lib/
 │   ├── utils.sh           # Terminal styling, run_cmd logger, input helpers
 │   ├── disk.sh            # Partition selector, subvolumes, mount operations
 │   ├── bootstrap.sh       # Keyring, mirror optimization, pacstrap, fstab
-│   └── chroot_setup.sh    # Configuration executed inside arch-chroot
+│   └── chroot_setup.sh    # Chroot base system setup, drivers, and desktop
 ├── configs/
 │   └── zram-generator.conf# ZRAM RAM compression configuration
 └── README.md
 ```
+

@@ -167,8 +167,8 @@ setup_storage() {
         msg_step "Resetting Arch Installation (Preserving @home)"
         run_cmd mount "$ROOT_PART" "$pool_mnt"
 
-        # Delete system subvolumes (@, @pkg, @log, @snapshots) while leaving @home intact
-        for subvol in @ @pkg @log @snapshots; do
+        # Delete system subvolumes (@, @pkg, @log, @snapshots, @swap) while leaving @home intact
+        for subvol in @ @pkg @log @snapshots @swap; do
             if [ -e "${pool_mnt}/$subvol" ]; then
                 msg_info "Removing old subvolume: ${pool_mnt}/$subvol"
                 # Recursively delete any nested subvolumes or snapshots if present
@@ -185,6 +185,7 @@ setup_storage() {
         run_cmd btrfs subvolume create "${pool_mnt}/@pkg"
         run_cmd btrfs subvolume create "${pool_mnt}/@log"
         run_cmd btrfs subvolume create "${pool_mnt}/@snapshots"
+        run_cmd btrfs subvolume create "${pool_mnt}/@swap"
 
         run_cmd umount "$pool_mnt"
         rmdir "$pool_mnt" 2>/dev/null || true
@@ -193,7 +194,7 @@ setup_storage() {
         run_cmd btrfs filesystem label "$ROOT_PART" ARCH
 
         # Subvolumes
-        msg_step "Creating Btrfs 5-Subvolume Layout (@, @home, @pkg, @log, @snapshots)"
+        msg_step "Creating Btrfs 6-Subvolume Layout (@, @home, @pkg, @log, @snapshots, @swap)"
         run_cmd mount "$ROOT_PART" "$pool_mnt"
 
         run_cmd btrfs subvolume create "${pool_mnt}/@"
@@ -201,18 +202,19 @@ setup_storage() {
         run_cmd btrfs subvolume create "${pool_mnt}/@pkg"
         run_cmd btrfs subvolume create "${pool_mnt}/@log"
         run_cmd btrfs subvolume create "${pool_mnt}/@snapshots"
+        run_cmd btrfs subvolume create "${pool_mnt}/@swap"
 
         run_cmd umount "$pool_mnt"
         rmdir "$pool_mnt" 2>/dev/null || true
     fi
 
     # Mounting Subvolumes
-    msg_step "Mounting Subvolumes with 'noatime,compress=zstd'"
+    msg_step "Mounting Subvolumes"
     local btrfs_opts="noatime,compress=zstd"
 
     run_cmd mount -o "${btrfs_opts},subvol=@" "$ROOT_PART" /mnt
 
-    run_cmd mkdir -p /mnt/{boot,home,.snapshots}
+    run_cmd mkdir -p /mnt/{boot,home,.snapshots,swap}
     run_cmd mkdir -p /mnt/var/log
     run_cmd mkdir -p /mnt/var/cache/pacman/pkg
 
@@ -220,6 +222,8 @@ setup_storage() {
     run_cmd mount -o "${btrfs_opts},subvol=@pkg" "$ROOT_PART" /mnt/var/cache/pacman/pkg
     run_cmd mount -o "${btrfs_opts},subvol=@log" "$ROOT_PART" /mnt/var/log
     run_cmd mount -o "${btrfs_opts},subvol=@snapshots" "$ROOT_PART" /mnt/.snapshots
+    # Swap subvolume mounted with nodatacow (no compression, no CoW)
+    run_cmd mount -o "noatime,nodatacow,subvol=@swap" "$ROOT_PART" /mnt/swap
 
     # Mount EFI partition
     run_cmd mount "$EFI_PART" /mnt/boot
@@ -280,6 +284,7 @@ mount_existing_system() {
     run_cmd mount -o "${btrfs_opts},subvol=@pkg" "$ROOT_PART" /mnt/var/cache/pacman/pkg 2>/dev/null || true
     run_cmd mount -o "${btrfs_opts},subvol=@log" "$ROOT_PART" /mnt/var/log 2>/dev/null || true
     run_cmd mount -o "${btrfs_opts},subvol=@snapshots" "$ROOT_PART" /mnt/.snapshots 2>/dev/null || true
+    run_cmd mount -o "noatime,nodatacow,subvol=@swap" "$ROOT_PART" /mnt/swap 2>/dev/null || true
 
     # Mount EFI
     run_cmd mount "$EFI_PART" /mnt/boot

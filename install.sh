@@ -179,27 +179,9 @@ if [ "$LOADED_FROM_CACHE" != true ]; then
 
     prompt_yes_no "Enable Bluetooth support (bluez & bluedevil)?" "Y" ENABLE_BLUETOOTH
 
-    # 7. Mirrors & Repositories
+    # 7. Mirror Ranking
     echo ""
     prompt_yes_no "Sort fastest HTTPS mirrors with Reflector before installing?" "Y" ENABLE_REFLECTOR
-    prompt_yes_no "Enable Chaotic-AUR and pre-install yay (AUR Helper)?" "N" ENABLE_CHAOTIC_AUR
-
-    # 8. Snapshots & Performance
-    echo ""
-    prompt_yes_no "Enable Snapper automated snapshots + GRUB boot menu integration?" "Y" ENABLE_SNAPPER
-    prompt_yes_no "Enable zram compressed RAM swap (zram-generator)?" "Y" ENABLE_ZRAM
-
-    echo ""
-    prompt_input "Btrfs Swapfile size in GiB (e.g., 8, 4, or 0 for none)" "8" SWAP_SIZE_INPUT
-    if [ "$SWAP_SIZE_INPUT" -gt 0 ] 2>/dev/null; then
-        SWAP_TYPE="btrfs"
-        SWAP_SIZE="$SWAP_SIZE_INPUT"
-    else
-        SWAP_TYPE="none"
-        SWAP_SIZE="0"
-    fi
-
-    prompt_yes_no "Enable periodic SSD TRIM (fstrim.timer)?" "Y" ENABLE_TRIM
 
     # Save answers to cache file
     cat << CACHE > "$CACHE_FILE"
@@ -217,12 +199,6 @@ INSTALL_DESKTOP="${INSTALL_DESKTOP}"
 PLASMA_FLAVOR="${PLASMA_FLAVOR}"
 ENABLE_BLUETOOTH="${ENABLE_BLUETOOTH}"
 ENABLE_REFLECTOR="${ENABLE_REFLECTOR}"
-ENABLE_CHAOTIC_AUR="${ENABLE_CHAOTIC_AUR}"
-ENABLE_SNAPPER="${ENABLE_SNAPPER}"
-ENABLE_ZRAM="${ENABLE_ZRAM}"
-SWAP_TYPE="${SWAP_TYPE}"
-SWAP_SIZE="${SWAP_SIZE}"
-ENABLE_TRIM="${ENABLE_TRIM}"
 CACHE
     chmod 600 "$CACHE_FILE"
 fi
@@ -238,11 +214,7 @@ echo -e "  Microcode        : ${GREEN}${UCODE}${RESET}"
 echo -e "  GPU Drivers      : ${GREEN}${GPU_DRIVERS:-None}${RESET}"
 echo -e "  Desktop Package  : ${GREEN}${PLASMA_FLAVOR}${RESET}"
 echo -e "  Reflector Rank   : ${GREEN}${ENABLE_REFLECTOR}${RESET}"
-echo -e "  Chaotic-AUR/yay  : ${GREEN}${ENABLE_CHAOTIC_AUR}${RESET}"
-echo -e "  Snapper in GRUB  : ${GREEN}${ENABLE_SNAPPER}${RESET}"
-echo -e "  zram Swap        : ${GREEN}${ENABLE_ZRAM}${RESET}"
-echo -e "  Btrfs Swapfile   : ${GREEN}${SWAP_SIZE}G${RESET}"
-echo -e "  SSD TRIM         : ${GREEN}${ENABLE_TRIM}${RESET}"
+echo -e "  Bluetooth        : ${GREEN}${ENABLE_BLUETOOTH}${RESET}"
 echo ""
 
 prompt_yes_no "Do you want to proceed to partition selection?" "Y" PROCEED_CONFIG
@@ -275,12 +247,6 @@ GPU_DRIVERS="${GPU_DRIVERS}"
 INSTALL_DESKTOP="${INSTALL_DESKTOP}"
 PLASMA_FLAVOR="${PLASMA_FLAVOR}"
 ENABLE_BLUETOOTH="${ENABLE_BLUETOOTH}"
-ENABLE_CHAOTIC_AUR="${ENABLE_CHAOTIC_AUR}"
-ENABLE_SNAPPER="${ENABLE_SNAPPER}"
-ENABLE_ZRAM="${ENABLE_ZRAM}"
-SWAP_TYPE="${SWAP_TYPE}"
-SWAP_SIZE="${SWAP_SIZE}"
-ENABLE_TRIM="${ENABLE_TRIM}"
 VARS
 
 chmod 600 /mnt/root/installer/installer_vars.sh
@@ -289,13 +255,23 @@ chmod 600 /mnt/root/installer/installer_vars.sh
 cp "${SCRIPT_DIR}/lib/chroot_setup.sh" /mnt/root/installer/chroot_setup.sh
 chmod +x /mnt/root/installer/chroot_setup.sh
 
-if [ -f "${SCRIPT_DIR}/configs/zram-generator.conf" ]; then
-    cp "${SCRIPT_DIR}/configs/zram-generator.conf" /mnt/root/installer/zram-generator.conf
+# Place post-install.sh in newly created system
+if [ -n "$USERNAME" ]; then
+    mkdir -p "/mnt/home/${USERNAME}"
+    cp "${SCRIPT_DIR}/post-install.sh" "/mnt/home/${USERNAME}/post-install.sh"
+    chmod +x "/mnt/home/${USERNAME}/post-install.sh"
+    mkdir -p "/mnt/home/${USERNAME}/configs"
+    cp -r "${SCRIPT_DIR}/configs/"* "/mnt/home/${USERNAME}/configs/" 2>/dev/null || true
 fi
 
 # Execute Chroot Setup
 msg_step "Entering Chroot & Executing System Setup"
 run_cmd arch-chroot /mnt /bin/bash /root/installer/chroot_setup.sh
+
+# Ensure proper user ownership on post-install script
+if [ -n "$USERNAME" ]; then
+    run_cmd arch-chroot /mnt chown -R "${USERNAME}:${USERNAME}" "/home/${USERNAME}/post-install.sh" "/home/${USERNAME}/configs" 2>/dev/null || true
+fi
 
 # Clean up temporary installer files from target
 run_cmd rm -rf /mnt/root/installer
