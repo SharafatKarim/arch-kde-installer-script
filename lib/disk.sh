@@ -228,6 +228,11 @@ setup_storage() {
     # Mount EFI partition
     run_cmd mount "$EFI_PART" /mnt/boot
 
+    # Save disk selection to persistent state if save_config is available
+    if command -v save_config &>/dev/null; then
+        save_config
+    fi
+
     msg_ok "All partitions and subvolumes mounted successfully under /mnt."
 }
 

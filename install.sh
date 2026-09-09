@@ -183,8 +183,8 @@ if [ "$LOADED_FROM_CACHE" != true ]; then
     echo ""
     prompt_yes_no "Sort fastest HTTPS mirrors with Reflector before installing?" "Y" ENABLE_REFLECTOR
 
-    # Save answers to cache file
-    cat << CACHE > "$CACHE_FILE"
+    save_config() {
+        cat << CACHE > "$CACHE_FILE"
 HOSTNAME="${HOSTNAME}"
 USERNAME="${USERNAME}"
 USER_PASSWORD="${USER_PASSWORD}"
@@ -199,8 +199,19 @@ INSTALL_DESKTOP="${INSTALL_DESKTOP}"
 PLASMA_FLAVOR="${PLASMA_FLAVOR}"
 ENABLE_BLUETOOTH="${ENABLE_BLUETOOTH}"
 ENABLE_REFLECTOR="${ENABLE_REFLECTOR}"
+DISK_MODE="${DISK_MODE:-}"
+TARGET_DISK="${TARGET_DISK:-}"
+EFI_PART="${EFI_PART:-}"
+ROOT_PART="${ROOT_PART:-}"
+FORMAT_EFI="${FORMAT_EFI:-}"
+KEEP_HOME="${KEEP_HOME:-}"
+INSTALL_STAGE="${INSTALL_STAGE:-CONFIGURED}"
 CACHE
-    chmod 600 "$CACHE_FILE"
+        chmod 600 "$CACHE_FILE"
+    }
+
+    # Save answers to cache file
+    save_config
 fi
 
 # Review Summary
@@ -223,18 +234,47 @@ if [ "$PROCEED_CONFIG" != true ]; then
     exit 1
 fi
 
+# Function to update checkpoint state
+set_stage() {
+    INSTALL_STAGE="$1"
+    save_config
+}
+
 # Step 1: Disk & Partition Setup
-setup_storage
+if [ "${INSTALL_STAGE}" = "CONFIGURED" ] || [ -z "${INSTALL_STAGE}" ]; then
+    setup_storage
+    set_stage "STORAGE_PREPARED"
+else
+    msg_info "Storage already partitioned and prepared (Stage: ${INSTALL_STAGE})."
+    # Ensure partitions/subvolumes are mounted if restarting after storage was prepared
+    if ! mountpoint -q /mnt; then
+        msg_info "Remounting subvolumes under /mnt..."
+        local btrfs_opts="noatime,compress=zstd"
+        run_cmd mount -o "${btrfs_opts},subvol=@" "$ROOT_PART" /mnt
+        run_cmd mount -o "${btrfs_opts},subvol=@home" "$ROOT_PART" /mnt/home 2>/dev/null || true
+        run_cmd mount -o "${btrfs_opts},subvol=@pkg" "$ROOT_PART" /mnt/var/cache/pacman/pkg 2>/dev/null || true
+        run_cmd mount -o "${btrfs_opts},subvol=@log" "$ROOT_PART" /mnt/var/log 2>/dev/null || true
+        run_cmd mount -o "${btrfs_opts},subvol=@snapshots" "$ROOT_PART" /mnt/.snapshots 2>/dev/null || true
+        run_cmd mount -o "noatime,nodatacow,subvol=@swap" "$ROOT_PART" /mnt/swap 2>/dev/null || true
+        run_cmd mount "$EFI_PART" /mnt/boot 2>/dev/null || true
+    fi
+fi
 
 # Step 2: Pacstrap Base System
-bootstrap_system "$KERNEL" "$UCODE" "$ENABLE_REFLECTOR"
+if [ "${INSTALL_STAGE}" = "STORAGE_PREPARED" ]; then
+    bootstrap_system "$KERNEL" "$UCODE" "$ENABLE_REFLECTOR"
+    set_stage "PACSTRAP_DONE"
+else
+    msg_info "Base system already installed via pacstrap (Stage: ${INSTALL_STAGE})."
+fi
 
 # Step 3: Pass variables and configs into target system for chroot
-msg_step "Preparing Chroot Environment"
+if [ "${INSTALL_STAGE}" = "PACSTRAP_DONE" ]; then
+    msg_step "Preparing Chroot Environment"
 
-mkdir -p /mnt/root/installer
+    mkdir -p /mnt/root/installer
 
-cat << VARS > /mnt/root/installer/installer_vars.sh
+    cat << VARS > /mnt/root/installer/installer_vars.sh
 HOSTNAME="${HOSTNAME}"
 USERNAME="${USERNAME}"
 USER_PASSWORD="${USER_PASSWORD}"
@@ -249,32 +289,35 @@ PLASMA_FLAVOR="${PLASMA_FLAVOR}"
 ENABLE_BLUETOOTH="${ENABLE_BLUETOOTH}"
 VARS
 
-chmod 600 /mnt/root/installer/installer_vars.sh
+    chmod 600 /mnt/root/installer/installer_vars.sh
 
-# Copy config templates and chroot script
-cp "${SCRIPT_DIR}/lib/chroot_setup.sh" /mnt/root/installer/chroot_setup.sh
-chmod +x /mnt/root/installer/chroot_setup.sh
+    # Copy config templates and chroot script
+    cp "${SCRIPT_DIR}/lib/chroot_setup.sh" /mnt/root/installer/chroot_setup.sh
+    chmod +x /mnt/root/installer/chroot_setup.sh
 
-# Place post-install.sh in newly created system
-if [ -n "$USERNAME" ]; then
-    mkdir -p "/mnt/home/${USERNAME}"
-    cp "${SCRIPT_DIR}/post-install.sh" "/mnt/home/${USERNAME}/post-install.sh"
-    chmod +x "/mnt/home/${USERNAME}/post-install.sh"
-    mkdir -p "/mnt/home/${USERNAME}/configs"
-    cp -r "${SCRIPT_DIR}/configs/"* "/mnt/home/${USERNAME}/configs/" 2>/dev/null || true
+    # Place post-install.sh in newly created system
+    if [ -n "$USERNAME" ]; then
+        mkdir -p "/mnt/home/${USERNAME}"
+        cp "${SCRIPT_DIR}/post-install.sh" "/mnt/home/${USERNAME}/post-install.sh"
+        chmod +x "/mnt/home/${USERNAME}/post-install.sh"
+        mkdir -p "/mnt/home/${USERNAME}/configs"
+        cp -r "${SCRIPT_DIR}/configs/"* "/mnt/home/${USERNAME}/configs/" 2>/dev/null || true
+    fi
+
+    # Execute Chroot Setup
+    msg_step "Entering Chroot & Executing System Setup"
+    run_cmd arch-chroot /mnt /bin/bash /root/installer/chroot_setup.sh
+
+    # Ensure proper user ownership on post-install script
+    if [ -n "$USERNAME" ]; then
+        run_cmd arch-chroot /mnt chown -R "${USERNAME}:${USERNAME}" "/home/${USERNAME}/post-install.sh" "/home/${USERNAME}/configs" 2>/dev/null || true
+    fi
+
+    # Clean up temporary installer files from target
+    run_cmd rm -rf /mnt/root/installer
+
+    set_stage "CHROOT_DONE"
 fi
-
-# Execute Chroot Setup
-msg_step "Entering Chroot & Executing System Setup"
-run_cmd arch-chroot /mnt /bin/bash /root/installer/chroot_setup.sh
-
-# Ensure proper user ownership on post-install script
-if [ -n "$USERNAME" ]; then
-    run_cmd arch-chroot /mnt chown -R "${USERNAME}:${USERNAME}" "/home/${USERNAME}/post-install.sh" "/home/${USERNAME}/configs" 2>/dev/null || true
-fi
-
-# Clean up temporary installer files from target
-run_cmd rm -rf /mnt/root/installer
 
 # Post-Install Health Checkups
 msg_step "Verifying Installation Health"
