@@ -69,123 +69,163 @@ if ! ping -c 1 -W 3 1.1.1.1 >/dev/null 2>&1; then
     exit 1
 fi
 
-# Interactive Configuration Questions
-msg_step "Interactive System Configuration"
+CACHE_FILE="${SCRIPT_DIR}/.installer_cache.env"
+LOADED_FROM_CACHE=false
 
-# 1. Hostname & User
-prompt_input "Enter Hostname" "archlinux" HOSTNAME
-prompt_input "Enter Non-Root Username" "arch" USERNAME
-prompt_password "Enter password for '$USERNAME'" USER_PASSWORD
-prompt_password "Enter Root password" ROOT_PASSWORD
-
-# 2. Localization
-prompt_input "Enter Timezone (Region/City)" "Asia/Dhaka" TIMEZONE
-prompt_input "Enter System Locale" "en_US" LOCALE
-prompt_input "Enter Keyboard Layout" "us" KEYMAP
-
-# 3. Kernel Selection
-echo ""
-msg_info "Select Linux Kernel:"
-echo "  1) linux-zen (Recommended for desktop responsiveness)"
-echo "  2) linux     (Standard upstream kernel)"
-echo "  3) linux-lts (Long Term Support kernel)"
-prompt_input "Enter kernel choice (1/2/3)" "1" KERNEL_CHOICE
-
-case "$KERNEL_CHOICE" in
-    2) KERNEL="linux" ;;
-    3) KERNEL="linux-lts" ;;
-    *) KERNEL="linux-zen" ;;
-esac
-msg_ok "Selected Kernel: $KERNEL"
-
-# 4. CPU Microcode Detection
-CPU_VENDOR=$(grep -m1 'vendor_id' /proc/cpuinfo | awk '{print $3}')
-if [[ "$CPU_VENDOR" =~ AuthenticAMD ]]; then
-    DEFAULT_UCODE="amd-ucode"
-elif [[ "$CPU_VENDOR" =~ GenuineIntel ]]; then
-    DEFAULT_UCODE="intel-ucode"
-else
-    DEFAULT_UCODE="none"
-fi
-prompt_input "CPU Microcode package (amd-ucode / intel-ucode / none)" "$DEFAULT_UCODE" UCODE
-
-# 5. Graphics / GPU Driver Selection
-echo ""
-GPU_DETECTED="Generic / Mesa"
-GPU_PKG="mesa"
-if lspci | grep -Ei 'vga|3d|display' | grep -qi 'nvidia'; then
-    GPU_DETECTED="NVIDIA"
-    GPU_PKG="nvidia-dkms nvidia-utils"
-elif lspci | grep -Ei 'vga|3d|display' | grep -qi 'amd'; then
-    GPU_DETECTED="AMD"
-    GPU_PKG="mesa vulkan-radeon xf86-video-amdgpu"
-elif lspci | grep -Ei 'vga|3d|display' | grep -qi 'intel'; then
-    GPU_DETECTED="Intel"
-    GPU_PKG="mesa vulkan-intel"
+if [ -f "$CACHE_FILE" ]; then
+    msg_info "Found saved configuration from a previous run."
+    prompt_yes_no "Do you want to RESUME using saved settings?" "Y" RESUME_CACHE
+    if [ "$RESUME_CACHE" = true ]; then
+        source "$CACHE_FILE"
+        LOADED_FROM_CACHE=true
+        msg_ok "Loaded configuration from cache."
+    fi
 fi
 
-msg_info "Detected GPU: ${CYAN}${GPU_DETECTED}${RESET}"
-echo "  1) Auto / Detected ($GPU_DETECTED -> $GPU_PKG)"
-echo "  2) Open-Source Mesa (Intel / AMD / Generic Mesa + Vulkan)"
-echo "  3) NVIDIA DKMS (Proprietary drivers for Nvidia cards)"
-echo "  4) None (Skip GPU driver installation)"
-prompt_input "Select graphics driver option (1/2/3/4)" "1" GPU_CHOICE
+if [ "$LOADED_FROM_CACHE" != true ]; then
+    # Interactive Configuration Questions
+    msg_step "Interactive System Configuration"
 
-case "$GPU_CHOICE" in
-    2) GPU_DRIVERS="mesa vulkan-intel vulkan-radeon" ;;
-    3) GPU_DRIVERS="nvidia-dkms nvidia-utils" ;;
-    4) GPU_DRIVERS="" ;;
-    *) GPU_DRIVERS="$GPU_PKG" ;;
-esac
-msg_ok "Graphics Drivers: ${GPU_DRIVERS:-None}"
+    # 1. Hostname & User
+    prompt_input "Enter Hostname" "archlinux" HOSTNAME
+    prompt_input "Enter Non-Root Username" "arch" USERNAME
+    prompt_password "Enter password for '$USERNAME'" USER_PASSWORD
+    prompt_password "Enter Root password" ROOT_PASSWORD
 
-# 6. Desktop Environment & Apps
-echo ""
-msg_info "KDE Plasma Installation Option:"
-echo "  1) Minimal Plasma (plasma-desktop + PipeWire + essential apps) [Recommended]"
-echo "  2) Full Plasma Group (plasma meta-package / all defaults)"
-echo "  3) None / CLI Only"
-prompt_input "Enter desktop choice (1/2/3)" "1" DESKTOP_CHOICE
+    # 2. Localization
+    prompt_input "Enter Timezone (Region/City)" "Asia/Dhaka" TIMEZONE
+    prompt_input "Enter System Locale" "en_US" LOCALE
+    prompt_input "Enter Keyboard Layout" "us" KEYMAP
 
-case "$DESKTOP_CHOICE" in
-    2)
-        INSTALL_DESKTOP=true
-        PLASMA_FLAVOR="full"
-        ;;
-    3)
-        INSTALL_DESKTOP=false
-        PLASMA_FLAVOR="none"
-        ;;
-    *)
-        INSTALL_DESKTOP=true
-        PLASMA_FLAVOR="minimal"
-        ;;
-esac
-msg_ok "Desktop Selection: $PLASMA_FLAVOR (Install: $INSTALL_DESKTOP)"
+    # 3. Kernel Selection
+    echo ""
+    msg_info "Select Linux Kernel:"
+    echo "  1) linux-zen (Recommended for desktop responsiveness)"
+    echo "  2) linux     (Standard upstream kernel)"
+    echo "  3) linux-lts (Long Term Support kernel)"
+    prompt_input "Enter kernel choice (1/2/3)" "1" KERNEL_CHOICE
 
-prompt_yes_no "Enable Bluetooth support (bluez & bluedevil)?" "Y" ENABLE_BLUETOOTH
+    case "$KERNEL_CHOICE" in
+        2) KERNEL="linux" ;;
+        3) KERNEL="linux-lts" ;;
+        *) KERNEL="linux-zen" ;;
+    esac
+    msg_ok "Selected Kernel: $KERNEL"
 
-# 7. Mirrors & Repositories
-echo ""
-prompt_yes_no "Sort fastest HTTPS mirrors with Reflector before installing?" "Y" ENABLE_REFLECTOR
-prompt_yes_no "Enable Chaotic-AUR and pre-install yay (AUR Helper)?" "N" ENABLE_CHAOTIC_AUR
+    # 4. CPU Microcode Detection
+    CPU_VENDOR=$(grep -m1 'vendor_id' /proc/cpuinfo | awk '{print $3}')
+    if [[ "$CPU_VENDOR" =~ AuthenticAMD ]]; then
+        DEFAULT_UCODE="amd-ucode"
+    elif [[ "$CPU_VENDOR" =~ GenuineIntel ]]; then
+        DEFAULT_UCODE="intel-ucode"
+    else
+        DEFAULT_UCODE="none"
+    fi
+    prompt_input "CPU Microcode package (amd-ucode / intel-ucode / none)" "$DEFAULT_UCODE" UCODE
 
-# 8. Snapshots & Performance
-echo ""
-prompt_yes_no "Enable Snapper automated snapshots + GRUB boot menu integration?" "Y" ENABLE_SNAPPER
-prompt_yes_no "Enable zram compressed RAM swap (zram-generator)?" "Y" ENABLE_ZRAM
+    # 5. Graphics / GPU Driver Selection
+    echo ""
+    GPU_DETECTED="Generic / Mesa"
+    GPU_PKG="mesa"
+    if lspci | grep -Ei 'vga|3d|display' | grep -qi 'nvidia'; then
+        GPU_DETECTED="NVIDIA"
+        GPU_PKG="nvidia-dkms nvidia-utils"
+    elif lspci | grep -Ei 'vga|3d|display' | grep -qi 'amd'; then
+        GPU_DETECTED="AMD"
+        GPU_PKG="mesa vulkan-radeon xf86-video-amdgpu"
+    elif lspci | grep -Ei 'vga|3d|display' | grep -qi 'intel'; then
+        GPU_DETECTED="Intel"
+        GPU_PKG="mesa vulkan-intel"
+    fi
 
-echo ""
-prompt_input "Btrfs Swapfile size in GiB (e.g., 8, 4, or 0 for none)" "8" SWAP_SIZE_INPUT
-if [ "$SWAP_SIZE_INPUT" -gt 0 ] 2>/dev/null; then
-    SWAP_TYPE="btrfs"
-    SWAP_SIZE="$SWAP_SIZE_INPUT"
-else
-    SWAP_TYPE="none"
-    SWAP_SIZE="0"
+    msg_info "Detected GPU: ${CYAN}${GPU_DETECTED}${RESET}"
+    echo "  1) Auto / Detected ($GPU_DETECTED -> $GPU_PKG)"
+    echo "  2) Open-Source Mesa (Intel / AMD / Generic Mesa + Vulkan)"
+    echo "  3) NVIDIA DKMS (Proprietary drivers for Nvidia cards)"
+    echo "  4) None (Skip GPU driver installation)"
+    prompt_input "Select graphics driver option (1/2/3/4)" "1" GPU_CHOICE
+
+    case "$GPU_CHOICE" in
+        2) GPU_DRIVERS="mesa vulkan-intel vulkan-radeon" ;;
+        3) GPU_DRIVERS="nvidia-dkms nvidia-utils" ;;
+        4) GPU_DRIVERS="" ;;
+        *) GPU_DRIVERS="$GPU_PKG" ;;
+    esac
+    msg_ok "Graphics Drivers: ${GPU_DRIVERS:-None}"
+
+    # 6. Desktop Environment & Apps
+    echo ""
+    msg_info "KDE Plasma Installation Option:"
+    echo "  1) Minimal Plasma (plasma-desktop + PipeWire + essential apps) [Recommended]"
+    echo "  2) Full Plasma Group (plasma meta-package / all defaults)"
+    echo "  3) None / CLI Only"
+    prompt_input "Enter desktop choice (1/2/3)" "1" DESKTOP_CHOICE
+
+    case "$DESKTOP_CHOICE" in
+        2)
+            INSTALL_DESKTOP=true
+            PLASMA_FLAVOR="full"
+            ;;
+        3)
+            INSTALL_DESKTOP=false
+            PLASMA_FLAVOR="none"
+            ;;
+        *)
+            INSTALL_DESKTOP=true
+            PLASMA_FLAVOR="minimal"
+            ;;
+    esac
+    msg_ok "Desktop Selection: $PLASMA_FLAVOR (Install: $INSTALL_DESKTOP)"
+
+    prompt_yes_no "Enable Bluetooth support (bluez & bluedevil)?" "Y" ENABLE_BLUETOOTH
+
+    # 7. Mirrors & Repositories
+    echo ""
+    prompt_yes_no "Sort fastest HTTPS mirrors with Reflector before installing?" "Y" ENABLE_REFLECTOR
+    prompt_yes_no "Enable Chaotic-AUR and pre-install yay (AUR Helper)?" "N" ENABLE_CHAOTIC_AUR
+
+    # 8. Snapshots & Performance
+    echo ""
+    prompt_yes_no "Enable Snapper automated snapshots + GRUB boot menu integration?" "Y" ENABLE_SNAPPER
+    prompt_yes_no "Enable zram compressed RAM swap (zram-generator)?" "Y" ENABLE_ZRAM
+
+    echo ""
+    prompt_input "Btrfs Swapfile size in GiB (e.g., 8, 4, or 0 for none)" "8" SWAP_SIZE_INPUT
+    if [ "$SWAP_SIZE_INPUT" -gt 0 ] 2>/dev/null; then
+        SWAP_TYPE="btrfs"
+        SWAP_SIZE="$SWAP_SIZE_INPUT"
+    else
+        SWAP_TYPE="none"
+        SWAP_SIZE="0"
+    fi
+
+    prompt_yes_no "Enable periodic SSD TRIM (fstrim.timer)?" "Y" ENABLE_TRIM
+
+    # Save answers to cache file
+    cat << CACHE > "$CACHE_FILE"
+HOSTNAME="${HOSTNAME}"
+USERNAME="${USERNAME}"
+USER_PASSWORD="${USER_PASSWORD}"
+ROOT_PASSWORD="${ROOT_PASSWORD}"
+TIMEZONE="${TIMEZONE}"
+LOCALE="${LOCALE}"
+KEYMAP="${KEYMAP}"
+KERNEL="${KERNEL}"
+UCODE="${UCODE}"
+GPU_DRIVERS="${GPU_DRIVERS}"
+INSTALL_DESKTOP="${INSTALL_DESKTOP}"
+PLASMA_FLAVOR="${PLASMA_FLAVOR}"
+ENABLE_BLUETOOTH="${ENABLE_BLUETOOTH}"
+ENABLE_REFLECTOR="${ENABLE_REFLECTOR}"
+ENABLE_CHAOTIC_AUR="${ENABLE_CHAOTIC_AUR}"
+ENABLE_SNAPPER="${ENABLE_SNAPPER}"
+ENABLE_ZRAM="${ENABLE_ZRAM}"
+SWAP_TYPE="${SWAP_TYPE}"
+SWAP_SIZE="${SWAP_SIZE}"
+ENABLE_TRIM="${ENABLE_TRIM}"
+CACHE
+    chmod 600 "$CACHE_FILE"
 fi
-
-prompt_yes_no "Enable periodic SSD TRIM (fstrim.timer)?" "Y" ENABLE_TRIM
 
 # Review Summary
 msg_step "Installation Summary"
@@ -220,7 +260,9 @@ bootstrap_system "$KERNEL" "$UCODE" "$ENABLE_REFLECTOR"
 # Step 3: Pass variables and configs into target system for chroot
 msg_step "Preparing Chroot Environment"
 
-cat << VARS > /mnt/tmp/installer_vars.sh
+mkdir -p /mnt/root/installer
+
+cat << VARS > /mnt/root/installer/installer_vars.sh
 HOSTNAME="${HOSTNAME}"
 USERNAME="${USERNAME}"
 USER_PASSWORD="${USER_PASSWORD}"
@@ -241,22 +283,25 @@ SWAP_SIZE="${SWAP_SIZE}"
 ENABLE_TRIM="${ENABLE_TRIM}"
 VARS
 
-chmod 600 /mnt/tmp/installer_vars.sh
+chmod 600 /mnt/root/installer/installer_vars.sh
 
 # Copy config templates and chroot script
-cp "${SCRIPT_DIR}/lib/chroot_setup.sh" /mnt/tmp/chroot_setup.sh
-chmod +x /mnt/tmp/chroot_setup.sh
+cp "${SCRIPT_DIR}/lib/chroot_setup.sh" /mnt/root/installer/chroot_setup.sh
+chmod +x /mnt/root/installer/chroot_setup.sh
 
 if [ -f "${SCRIPT_DIR}/configs/zram-generator.conf" ]; then
-    cp "${SCRIPT_DIR}/configs/zram-generator.conf" /mnt/tmp/zram-generator.conf
+    cp "${SCRIPT_DIR}/configs/zram-generator.conf" /mnt/root/installer/zram-generator.conf
 fi
 
 # Execute Chroot Setup
 msg_step "Entering Chroot & Executing System Setup"
-run_cmd arch-chroot /mnt /tmp/chroot_setup.sh
+run_cmd arch-chroot /mnt /bin/bash /root/installer/chroot_setup.sh
 
 # Clean up temporary installer files from target
-run_cmd rm -f /mnt/tmp/installer_vars.sh /mnt/tmp/chroot_setup.sh /mnt/tmp/zram-generator.conf
+run_cmd rm -rf /mnt/root/installer
+
+# Clean up local cache on successful installation
+rm -f "$CACHE_FILE"
 
 msg_step "Installation Complete!"
 msg_ok "Arch Linux with Btrfs and Minimal KDE Plasma has been successfully installed."

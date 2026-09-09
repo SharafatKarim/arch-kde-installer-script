@@ -4,7 +4,9 @@
 set -e
 
 # Source variables passed via environment file
-if [ -f /tmp/installer_vars.sh ]; then
+if [ -f /root/installer/installer_vars.sh ]; then
+    source /root/installer/installer_vars.sh
+elif [ -f /tmp/installer_vars.sh ]; then
     source /tmp/installer_vars.sh
 fi
 
@@ -227,7 +229,9 @@ fi
 if [ "$ENABLE_ZRAM" = true ]; then
     msg_step "Configuring zram-generator"
     run_cmd pacman -S --noconfirm --needed zram-generator
-    if [ -f /tmp/zram-generator.conf ]; then
+    if [ -f /root/installer/zram-generator.conf ]; then
+        run_cmd cp /root/installer/zram-generator.conf /etc/systemd/zram-generator.conf
+    elif [ -f /tmp/zram-generator.conf ]; then
         run_cmd cp /tmp/zram-generator.conf /etc/systemd/zram-generator.conf
     fi
     msg_ok "zram-generator configured."
