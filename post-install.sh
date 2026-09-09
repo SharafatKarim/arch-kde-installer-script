@@ -24,11 +24,37 @@ msg_step() { echo -e "\n${MAGENTA}${BOLD}=== $1 ===${RESET}"; }
 
 run_cmd() {
     echo -e "${CYAN}${BOLD}> RUNNING:${RESET} ${YELLOW}$*${RESET}"
+    if [ "${AUTO_MODE}" = false ]; then
+        local user_confirm=""
+        echo -ne "${YELLOW}${BOLD}Execute this command? [${GREEN}Y${RESET}/n/q(uit)]: ${RESET}"
+        read -r user_confirm
+        user_confirm=$(echo "$user_confirm" | tr '[:upper:]' '[:lower:]')
+        if [ "$user_confirm" = "q" ] || [ "$user_confirm" = "quit" ]; then
+            msg_err "Aborted by user."
+            exit 1
+        elif [ "$user_confirm" = "n" ] || [ "$user_confirm" = "no" ]; then
+            msg_warn "Skipped: $*"
+            return 0
+        fi
+    fi
     "$@"
 }
 
 run_eval() {
     echo -e "${CYAN}${BOLD}> RUNNING:${RESET} ${YELLOW}$*${RESET}"
+    if [ "${AUTO_MODE}" = false ]; then
+        local user_confirm=""
+        echo -ne "${YELLOW}${BOLD}Execute this command? [${GREEN}Y${RESET}/n/q(uit)]: ${RESET}"
+        read -r user_confirm
+        user_confirm=$(echo "$user_confirm" | tr '[:upper:]' '[:lower:]')
+        if [ "$user_confirm" = "q" ] || [ "$user_confirm" = "quit" ]; then
+            msg_err "Aborted by user."
+            exit 1
+        elif [ "$user_confirm" = "n" ] || [ "$user_confirm" = "no" ]; then
+            msg_warn "Skipped: $*"
+            return 0
+        fi
+    fi
     eval "$@"
 }
 
@@ -109,15 +135,19 @@ msg_ok "Internet connectivity verified."
 msg_step "Post-Installation Options"
 
 prompt_yes_no "Configure Snapper & GRUB Bootable Snapshots (snapper, snap-pac, grub-btrfsd)?" "Y" SETUP_SNAPPER
-prompt_yes_no "Configure Btrfs Swapfile on dedicated @swap subvolume?" "Y" SETUP_SWAP
+prompt_yes_no "Configure Btrfs Swapfile on dedicated @swap subvolume (uses kernel zswap automatically)?" "Y" SETUP_SWAP
 if [ "$SETUP_SWAP" = true ]; then
     prompt_input "Enter Swapfile size in GiB" "8" SWAP_SIZE
 fi
 
-prompt_yes_no "Configure zram-generator (compressed RAM swap)?" "Y" SETUP_ZRAM
+prompt_yes_no "Configure zram-generator instead of zswap (standalone RAM swap)?" "N" SETUP_ZRAM
 prompt_yes_no "Enable periodic SSD TRIM (fstrim.timer)?" "Y" SETUP_TRIM
 prompt_yes_no "Enable Chaotic-AUR and install yay AUR helper?" "Y" SETUP_CHAOTIC_AUR
 prompt_yes_no "Install extra utilities (fastfetch, libnotify, power-profiles-daemon)?" "Y" SETUP_EXTRAS
+
+# Execution Mode
+echo ""
+prompt_yes_no "You know what you are doing? (Yes: Auto-run all commands; No: Prompt before every command)" "Y" AUTO_MODE
 
 # 1. Chaotic-AUR & yay
 if [ "$SETUP_CHAOTIC_AUR" = true ]; then
@@ -198,7 +228,7 @@ fi
 
 # 4. zram-generator
 if [ "$SETUP_ZRAM" = true ]; then
-    msg_step "Configuring zram-generator"
+    msg_step "Configuring zram-generator (Disabling zswap to prevent dual-compression conflict)"
     run_cmd sudo pacman -S --noconfirm --needed zram-generator
     if [ -f "${SCRIPT_DIR}/configs/zram-generator.conf" ]; then
         sudo cp "${SCRIPT_DIR}/configs/zram-generator.conf" /etc/systemd/zram-generator.conf
@@ -209,9 +239,18 @@ zram-size = ram / 2
 compression-algorithm = zstd
 EOF"
     fi
+
+    # Arch Wiki recommendation: Disable zswap when using zram to avoid double-compression overhead
+    if [ -d /sys/module/zswap ]; then
+        sudo bash -c "echo 0 > /sys/module/zswap/parameters/enabled" 2>/dev/null || true
+        sudo bash -c "cat << 'EOF' > /etc/tmpfiles.d/disable-zswap.conf
+w /sys/module/zswap/parameters/enabled - - - - 0
+EOF"
+    fi
+
     run_cmd sudo systemctl daemon-reload
     run_cmd sudo systemctl start /dev/zram0 2>/dev/null || true
-    msg_ok "zram-generator configured."
+    msg_ok "zram-generator configured and zswap disabled."
 fi
 
 # 5. SSD TRIM

@@ -27,11 +27,37 @@ msg_step() { echo -e "\n${MAGENTA}${BOLD}=== $1 ===${RESET}"; }
 
 run_cmd() {
     echo -e "${CYAN}${BOLD}> RUNNING:${RESET} ${YELLOW}$*${RESET}"
+    if [ "${AUTO_MODE}" = false ]; then
+        local user_confirm=""
+        echo -ne "${YELLOW}${BOLD}Execute this command? [${GREEN}Y${RESET}/n/q(uit)]: ${RESET}"
+        read -r user_confirm
+        user_confirm=$(echo "$user_confirm" | tr '[:upper:]' '[:lower:]')
+        if [ "$user_confirm" = "q" ] || [ "$user_confirm" = "quit" ]; then
+            msg_err "Aborted by user."
+            exit 1
+        elif [ "$user_confirm" = "n" ] || [ "$user_confirm" = "no" ]; then
+            msg_warn "Skipped: $*"
+            return 0
+        fi
+    fi
     "$@"
 }
 
 run_eval() {
     echo -e "${CYAN}${BOLD}> RUNNING:${RESET} ${YELLOW}$*${RESET}"
+    if [ "${AUTO_MODE}" = false ]; then
+        local user_confirm=""
+        echo -ne "${YELLOW}${BOLD}Execute this command? [${GREEN}Y${RESET}/n/q(uit)]: ${RESET}"
+        read -r user_confirm
+        user_confirm=$(echo "$user_confirm" | tr '[:upper:]' '[:lower:]')
+        if [ "$user_confirm" = "q" ] || [ "$user_confirm" = "quit" ]; then
+            msg_err "Aborted by user."
+            exit 1
+        elif [ "$user_confirm" = "n" ] || [ "$user_confirm" = "no" ]; then
+            msg_warn "Skipped: $*"
+            return 0
+        fi
+    fi
     eval "$@"
 }
 

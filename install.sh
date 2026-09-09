@@ -100,15 +100,15 @@ if [ "$LOADED_FROM_CACHE" != true ]; then
     # 3. Kernel Selection
     echo ""
     msg_info "Select Linux Kernel:"
-    echo "  1) linux-zen (Recommended for desktop responsiveness)"
-    echo "  2) linux     (Standard upstream kernel)"
+    echo "  1) linux     (Standard upstream kernel) [Default]"
+    echo "  2) linux-zen (Tuned for desktop responsiveness)"
     echo "  3) linux-lts (Long Term Support kernel)"
     prompt_input "Enter kernel choice (1/2/3)" "1" KERNEL_CHOICE
 
     case "$KERNEL_CHOICE" in
-        2) KERNEL="linux" ;;
+        2) KERNEL="linux-zen" ;;
         3) KERNEL="linux-lts" ;;
-        *) KERNEL="linux-zen" ;;
+        *) KERNEL="linux" ;;
     esac
     msg_ok "Selected Kernel: $KERNEL"
 
@@ -183,6 +183,10 @@ if [ "$LOADED_FROM_CACHE" != true ]; then
     echo ""
     prompt_yes_no "Sort fastest HTTPS mirrors with Reflector before installing?" "Y" ENABLE_REFLECTOR
 
+    # 8. Execution Mode (Auto / Step-by-step Confirmation)
+    echo ""
+    prompt_yes_no "You know what you are doing? (Yes: Auto-run all commands; No: Prompt before every command)" "Y" AUTO_MODE
+
     save_config() {
         cat << CACHE > "$CACHE_FILE"
 HOSTNAME="${HOSTNAME}"
@@ -199,6 +203,7 @@ INSTALL_DESKTOP="${INSTALL_DESKTOP}"
 PLASMA_FLAVOR="${PLASMA_FLAVOR}"
 ENABLE_BLUETOOTH="${ENABLE_BLUETOOTH}"
 ENABLE_REFLECTOR="${ENABLE_REFLECTOR}"
+AUTO_MODE="${AUTO_MODE}"
 DISK_MODE="${DISK_MODE:-}"
 TARGET_DISK="${TARGET_DISK:-}"
 EFI_PART="${EFI_PART:-}"
@@ -287,6 +292,7 @@ GPU_DRIVERS="${GPU_DRIVERS}"
 INSTALL_DESKTOP="${INSTALL_DESKTOP}"
 PLASMA_FLAVOR="${PLASMA_FLAVOR}"
 ENABLE_BLUETOOTH="${ENABLE_BLUETOOTH}"
+AUTO_MODE="${AUTO_MODE}"
 VARS
 
     chmod 600 /mnt/root/installer/installer_vars.sh
