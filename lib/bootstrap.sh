@@ -4,6 +4,7 @@
 bootstrap_system() {
     local kernel="$1"
     local ucode="$2"
+    local enable_reflector="$3"
 
     msg_step "Step 3: Bootstrapping Base System (pacstrap)"
 
@@ -16,10 +17,16 @@ bootstrap_system() {
     msg_info "Updating archlinux-keyring..."
     run_cmd pacman -Sy --noconfirm archlinux-keyring
 
-    # Optional reflector fast mirror ranking
-    if command -v reflector &>/dev/null; then
-        msg_info "Sorting fastest 10 HTTPS mirrors using reflector..."
-        run_cmd reflector --latest 10 --protocol https --sort rate --save /etc/pacman.d/mirrorlist 2>/dev/null || msg_warn "Reflector ranking skipped/failed. Keeping default mirrors."
+    # Reflector fast mirror ranking (if enabled by user)
+    if [ "$enable_reflector" = true ]; then
+        if command -v reflector &>/dev/null; then
+            msg_info "Sorting fastest 10 HTTPS mirrors using reflector..."
+            run_cmd reflector --latest 10 --protocol https --sort rate --save /etc/pacman.d/mirrorlist 2>/dev/null || msg_warn "Reflector ranking skipped/failed. Keeping default mirrors."
+        else
+            msg_warn "reflector command not found in live environment. Keeping default mirrors."
+        fi
+    else
+        msg_info "Skipping reflector mirror ranking as requested."
     fi
 
     # Base package selection

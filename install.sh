@@ -165,8 +165,9 @@ msg_ok "Desktop Selection: $PLASMA_FLAVOR (Install: $INSTALL_DESKTOP)"
 
 prompt_yes_no "Enable Bluetooth support (bluez & bluedevil)?" "Y" ENABLE_BLUETOOTH
 
-# 7. AUR & Third-Party Repositories
+# 7. Mirrors & Repositories
 echo ""
+prompt_yes_no "Sort fastest HTTPS mirrors with Reflector before installing?" "Y" ENABLE_REFLECTOR
 prompt_yes_no "Enable Chaotic-AUR and pre-install yay (AUR Helper)?" "N" ENABLE_CHAOTIC_AUR
 
 # 8. Snapshots & Performance
@@ -196,6 +197,7 @@ echo -e "  Kernel           : ${GREEN}${KERNEL}${RESET}"
 echo -e "  Microcode        : ${GREEN}${UCODE}${RESET}"
 echo -e "  GPU Drivers      : ${GREEN}${GPU_DRIVERS:-None}${RESET}"
 echo -e "  Desktop Package  : ${GREEN}${PLASMA_FLAVOR}${RESET}"
+echo -e "  Reflector Rank   : ${GREEN}${ENABLE_REFLECTOR}${RESET}"
 echo -e "  Chaotic-AUR/yay  : ${GREEN}${ENABLE_CHAOTIC_AUR}${RESET}"
 echo -e "  Snapper in GRUB  : ${GREEN}${ENABLE_SNAPPER}${RESET}"
 echo -e "  zram Swap        : ${GREEN}${ENABLE_ZRAM}${RESET}"
@@ -213,7 +215,7 @@ fi
 setup_storage
 
 # Step 2: Pacstrap Base System
-bootstrap_system "$KERNEL" "$UCODE"
+bootstrap_system "$KERNEL" "$UCODE" "$ENABLE_REFLECTOR"
 
 # Step 3: Pass variables and configs into target system for chroot
 msg_step "Preparing Chroot Environment"
