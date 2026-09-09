@@ -134,7 +134,7 @@ run_cmd grub-mkconfig -o /boot/grub/grub.cfg
 if [ "$INSTALL_DESKTOP" = true ]; then
     if [ "$PLASMA_FLAVOR" = "full" ]; then
         msg_step "Installing Full KDE Plasma Package Group & PipeWire"
-        local plasma_pkgs=(
+        plasma_pkgs=(
             plasma
             plasma-login-manager
             pipewire
@@ -150,7 +150,7 @@ if [ "$INSTALL_DESKTOP" = true ]; then
         )
     else
         msg_step "Installing Minimal KDE Plasma (plasma-desktop) & PipeWire Stack"
-        local plasma_pkgs=(
+        plasma_pkgs=(
             plasma-desktop
             plasma-login-manager
             xdg-desktop-portal-kde
