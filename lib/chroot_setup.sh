@@ -185,21 +185,23 @@ if [ "$ENABLE_SNAPPER" = true ]; then
     msg_step "Configuring Snapper & GRUB Bootable Snapshots"
     run_cmd pacman -S --noconfirm --needed snapper snap-pac grub-btrfs
 
-    # Unmount /.snapshots to avoid nested subvolume
-    run_cmd umount /.snapshots || true
-    run_cmd rm -rf /.snapshots
+    # Configure Snapper root config declaratively (create-config uses DBus which isn't running in chroot)
+    run_cmd mkdir -p /etc/snapper/configs
+    run_cmd cp /usr/share/snapper/config-templates/default /etc/snapper/configs/root
 
-    # Create root snapper config
-    run_cmd snapper -c root create-config /
+    # Ensure root configuration is registered in snapper global config
+    if ! grep -q "^SNAPPER_CONFIGS=" /etc/conf.d/snapper 2>/dev/null; then
+        run_cmd mkdir -p /etc/conf.d
+        run_eval "echo 'SNAPPER_CONFIGS=\"root\"' > /etc/conf.d/snapper"
+    else
+        if ! grep -q '"root"' /etc/conf.d/snapper; then
+            run_cmd sed -i 's/^SNAPPER_CONFIGS="\(.*\)"/SNAPPER_CONFIGS="\1 root"/' /etc/conf.d/snapper
+        fi
+    fi
 
-    # Replace nested subvolume with Part 1 @snapshots subvolume
-    run_cmd btrfs subvolume delete /.snapshots || true
-    run_cmd mkdir -p /.snapshots
-    run_cmd mount -a
-
-    # Set secure permissions
+    # Set secure permissions on /.snapshots mount point
     run_cmd chmod 750 /.snapshots
-    run_cmd chown :wheel /.snapshots
+    run_cmd chown :wheel /.snapshots 2>/dev/null || true
 
     # Enable snapper timers
     run_cmd systemctl enable snapper-timeline.timer
