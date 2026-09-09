@@ -56,19 +56,20 @@ An automated, interactive installer script for Arch Linux based on the architect
 
 ---
 
-## Repository Structure
+## Snapshot Management & Rollback Guide
 
-```
-arch-kde-installer-script/
-├── install.sh             # Stage 1: Live ISO installer orchestrator
-├── post-install.sh        # Stage 2: Post-boot desktop configuration & tuning
-├── lib/
-│   ├── utils.sh           # Terminal styling, run_cmd logger, input helpers
-│   ├── disk.sh            # Partition selector, subvolumes, mount operations
-│   ├── bootstrap.sh       # Keyring, mirror optimization, pacstrap, fstab
-│   └── chroot_setup.sh    # Chroot base system setup, drivers, and desktop
-├── configs/
-│   └── zram-generator.conf# ZRAM RAM compression configuration
-└── README.md
-```
+Once [post-install.sh](file:///home/sharafat/Desktop/lab/arch-kde-installer-script/post-install.sh) runs, your system automatically creates snapshots:
+- **Timeline snapshots**: Taken hourly by `snapper-timeline.timer` and cleaned up by `snapper-cleanup.timer`.
+- **Pacman snapshots**: Taken automatically before and after any `pacman` install/update/removal via `snap-pac`.
+- **GRUB Boot Menu**: Snapshots are automatically detected and populated in your GRUB bootloader via `grub-btrfsd.service`.
+
+### How to Roll Back a Snapshot
+
+If a system update or configuration breaks your installation:
+
+1. **Reboot your system** and select **"Arch Linux snapshots"** from the GRUB boot menu.
+2. Select the snapshot you want to boot into (it boots into a read-only snapshot of that exact point in time).
+3. Once booted into the desktop or terminal, restore the snapshot:
+   - **GUI Method**: Launch `btrfs-assistant` and click **Restore** on your selected snapshot.
+   - **CLI Method**: Run `sudo snapper-rollback <snapshot_id>` (or use `snapper` to replace the default subvolume), then reboot normally.
 
