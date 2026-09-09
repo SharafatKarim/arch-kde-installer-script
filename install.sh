@@ -76,12 +76,7 @@ msg_step "Interactive System Configuration"
 prompt_input "Enter Hostname" "archlinux" HOSTNAME
 prompt_input "Enter Non-Root Username" "arch" USERNAME
 prompt_password "Enter password for '$USERNAME'" USER_PASSWORD
-prompt_password "Enter Root password (leave empty to reuse user password)" ROOT_PASSWORD
-
-if [ -z "$ROOT_PASSWORD" ]; then
-    ROOT_PASSWORD="$USER_PASSWORD"
-    msg_info "Reusing user password for root."
-fi
+prompt_password "Enter Root password" ROOT_PASSWORD
 
 # 2. Localization
 prompt_input "Enter Timezone (Region/City)" "Asia/Dhaka" TIMEZONE

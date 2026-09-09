@@ -15,8 +15,18 @@ setup_storage() {
 
     if [ "$DISK_MODE" = "2" ]; then
         # Whole disk auto-partition mode
+        echo ""
+        msg_info "Available Disks (Drives):"
+        lsblk -d -e 7,11 -o PATH,SIZE,MODEL,TRAN,TYPE
+
         while true; do
-            prompt_input "Enter target disk to wipe and partition (e.g., /dev/sda, /dev/nvme0n1)" "" TARGET_DISK
+            echo ""
+            prompt_input "Enter target disk to wipe and partition (e.g., /dev/sda, /dev/vda, /dev/nvme0n1)" "" TARGET_DISK
+            # Auto-prepend /dev/ if user enters only 'sda', 'vda', 'nvme0n1', etc.
+            if [[ "$TARGET_DISK" != /* ]] && [ -b "/dev/$TARGET_DISK" ]; then
+                TARGET_DISK="/dev/$TARGET_DISK"
+            fi
+
             if [ -b "$TARGET_DISK" ]; then
                 # Check if it's a whole disk rather than a partition
                 local dev_type
@@ -24,10 +34,11 @@ setup_storage() {
                 if [ "$dev_type" = "disk" ]; then
                     break
                 else
-                    msg_warn "'$TARGET_DISK' is a $dev_type, not a whole disk device. Please enter the main drive (e.g. /dev/sda or /dev/nvme0n1)."
+                    msg_warn "'$TARGET_DISK' is a $dev_type, not a whole disk device. Please enter the main drive (e.g. /dev/sda, /dev/vda, or /dev/nvme0n1)."
                 fi
             else
-                msg_err "Device '$TARGET_DISK' not found. Please try again."
+                msg_err "Device '$TARGET_DISK' not found."
+                echo -e "${YELLOW}Please enter one of the full device paths shown above (e.g. /dev/vda or /dev/sda).${RESET}"
             fi
         done
 
@@ -42,7 +53,7 @@ setup_storage() {
             exit 1
         fi
 
-        # Determine partition naming convention (e.g., nvme0n1p1 vs sda1)
+        # Determine partition naming convention (e.g., nvme0n1p1, vda1, sda1)
         if [[ "$TARGET_DISK" =~ [0-9]$ ]]; then
             EFI_PART="${TARGET_DISK}p1"
             ROOT_PART="${TARGET_DISK}p2"
@@ -62,16 +73,26 @@ setup_storage() {
         sleep 1
     else
         # Manual existing partitions mode
+        echo ""
+        msg_info "Available Partitions:"
+        lsblk -e 7,11 -o PATH,SIZE,TYPE,FSTYPE,LABEL,MOUNTPOINTS
+
+        echo ""
         msg_info "Please specify the existing partitions to use for the installation."
-        msg_info "Example partition names: ${YELLOW}/dev/nvme0n1p1${RESET}, ${YELLOW}/dev/sda1${RESET}, etc."
+        msg_info "Example partition names: ${YELLOW}/dev/nvme0n1p1${RESET}, ${YELLOW}/dev/vda1${RESET}, ${YELLOW}/dev/sda1${RESET}, etc."
 
         # 1. EFI / Boot partition
         while true; do
-            prompt_input "Enter EFI / Boot partition path (e.g., /dev/sda1)" "" EFI_PART
+            prompt_input "Enter EFI / Boot partition path (e.g., /dev/sda1, /dev/vda1)" "" EFI_PART
+            # Auto-prepend /dev/ if omitted
+            if [[ "$EFI_PART" != /* ]] && [ -b "/dev/$EFI_PART" ]; then
+                EFI_PART="/dev/$EFI_PART"
+            fi
+
             if [ -b "$EFI_PART" ]; then
                 break
             else
-                msg_err "Device '$EFI_PART' is not a valid block device. Please check lsblk and try again."
+                msg_err "Device '$EFI_PART' is not a valid block device. Please check the list above and try again."
             fi
         done
 
@@ -80,7 +101,12 @@ setup_storage() {
 
         # 3. Main Btrfs root partition
         while true; do
-            prompt_input "Enter Root partition path for Btrfs pool (e.g., /dev/sda2)" "" ROOT_PART
+            prompt_input "Enter Root partition path for Btrfs pool (e.g., /dev/sda2, /dev/vda2)" "" ROOT_PART
+            # Auto-prepend /dev/ if omitted
+            if [[ "$ROOT_PART" != /* ]] && [ -b "/dev/$ROOT_PART" ]; then
+                ROOT_PART="/dev/$ROOT_PART"
+            fi
+
             if [ -b "$ROOT_PART" ]; then
                 if [ "$ROOT_PART" = "$EFI_PART" ]; then
                     msg_err "Root partition cannot be the same as EFI partition!"
@@ -88,7 +114,7 @@ setup_storage() {
                 fi
                 break
             else
-                msg_err "Device '$ROOT_PART' is not a valid block device. Please check lsblk and try again."
+                msg_err "Device '$ROOT_PART' is not a valid block device. Please check the list above and try again."
             fi
         done
 
@@ -198,14 +224,18 @@ mount_existing_system() {
     msg_step "Mount Existing Installation for Chroot"
 
     echo -e "${CYAN}Available Block Devices and Partitions:${RESET}"
-    lsblk -e 7,11 -o NAME,SIZE,TYPE,FSTYPE,LABEL,MOUNTPOINTS
+    lsblk -e 7,11 -o PATH,SIZE,TYPE,FSTYPE,LABEL,MOUNTPOINTS
 
     echo ""
     msg_info "Please specify the partitions of your existing installation."
 
     # 1. Root Btrfs partition
     while true; do
-        prompt_input "Enter existing Btrfs Root partition path (e.g., /dev/sda2)" "" ROOT_PART
+        prompt_input "Enter existing Btrfs Root partition path (e.g., /dev/sda2, /dev/vda2)" "" ROOT_PART
+        if [[ "$ROOT_PART" != /* ]] && [ -b "/dev/$ROOT_PART" ]; then
+            ROOT_PART="/dev/$ROOT_PART"
+        fi
+
         if [ -b "$ROOT_PART" ]; then
             break
         else
@@ -215,7 +245,11 @@ mount_existing_system() {
 
     # 2. EFI partition
     while true; do
-        prompt_input "Enter existing EFI/Boot partition path (e.g., /dev/sda1)" "" EFI_PART
+        prompt_input "Enter existing EFI/Boot partition path (e.g., /dev/sda1, /dev/vda1)" "" EFI_PART
+        if [[ "$EFI_PART" != /* ]] && [ -b "/dev/$EFI_PART" ]; then
+            EFI_PART="/dev/$EFI_PART"
+        fi
+
         if [ -b "$EFI_PART" ]; then
             if [ "$EFI_PART" = "$ROOT_PART" ]; then
                 msg_err "EFI partition cannot be the same as Root partition!"
