@@ -4,6 +4,9 @@
 setup_storage() {
     msg_step "Step 1: Disk & Partition Setup"
 
+    # Ensure /mnt is cleanly unmounted before beginning
+    umount -R /mnt 2>/dev/null || true
+
     echo -e "${CYAN}Available Block Devices and Partitions:${RESET}"
     lsblk -e 7,11 -o NAME,SIZE,TYPE,FSTYPE,LABEL,MOUNTPOINTS
 
@@ -157,45 +160,50 @@ setup_storage() {
         msg_info "Skipping EFI format on ${EFI_PART} as requested."
     fi
 
+    local pool_mnt="/mnt_pool"
+    mkdir -p "$pool_mnt"
+
     if [ "$KEEP_HOME" = true ]; then
         msg_step "Resetting Arch Installation (Preserving @home)"
-        run_cmd mount "$ROOT_PART" /mnt
+        run_cmd mount "$ROOT_PART" "$pool_mnt"
 
         # Delete system subvolumes (@, @pkg, @log, @snapshots) while leaving @home intact
         for subvol in @ @pkg @log @snapshots; do
-            if [ -d "/mnt/$subvol" ]; then
-                msg_info "Removing old subvolume: /mnt/$subvol"
+            if [ -e "${pool_mnt}/$subvol" ]; then
+                msg_info "Removing old subvolume: ${pool_mnt}/$subvol"
                 # Recursively delete any nested subvolumes or snapshots if present
-                btrfs subvolume list -o /mnt/$subvol | awk '{print $9}' | sort -r | while read -r nested; do
-                    btrfs subvolume delete "/mnt/$nested" 2>/dev/null || true
+                btrfs subvolume list -o "${pool_mnt}/$subvol" 2>/dev/null | awk '{print $9}' | sort -r | while read -r nested; do
+                    btrfs subvolume delete "${pool_mnt}/$nested" 2>/dev/null || true
                 done
-                run_cmd btrfs subvolume delete "/mnt/$subvol"
+                run_cmd btrfs subvolume delete "${pool_mnt}/$subvol"
             fi
         done
 
         # Recreate fresh system subvolumes
         msg_info "Creating fresh system subvolumes..."
-        run_cmd btrfs subvolume create /mnt/@
-        run_cmd btrfs subvolume create /mnt/@pkg
-        run_cmd btrfs subvolume create /mnt/@log
-        run_cmd btrfs subvolume create /mnt/@snapshots
+        run_cmd btrfs subvolume create "${pool_mnt}/@"
+        run_cmd btrfs subvolume create "${pool_mnt}/@pkg"
+        run_cmd btrfs subvolume create "${pool_mnt}/@log"
+        run_cmd btrfs subvolume create "${pool_mnt}/@snapshots"
 
-        run_cmd umount /mnt
+        run_cmd umount "$pool_mnt"
+        rmdir "$pool_mnt" 2>/dev/null || true
     else
         run_cmd mkfs.btrfs -f "$ROOT_PART"
         run_cmd btrfs filesystem label "$ROOT_PART" ARCH
 
         # Subvolumes
         msg_step "Creating Btrfs 5-Subvolume Layout (@, @home, @pkg, @log, @snapshots)"
-        run_cmd mount "$ROOT_PART" /mnt
+        run_cmd mount "$ROOT_PART" "$pool_mnt"
 
-        run_cmd btrfs subvolume create /mnt/@
-        run_cmd btrfs subvolume create /mnt/@home
-        run_cmd btrfs subvolume create /mnt/@pkg
-        run_cmd btrfs subvolume create /mnt/@log
-        run_cmd btrfs subvolume create /mnt/@snapshots
+        run_cmd btrfs subvolume create "${pool_mnt}/@"
+        run_cmd btrfs subvolume create "${pool_mnt}/@home"
+        run_cmd btrfs subvolume create "${pool_mnt}/@pkg"
+        run_cmd btrfs subvolume create "${pool_mnt}/@log"
+        run_cmd btrfs subvolume create "${pool_mnt}/@snapshots"
 
-        run_cmd umount /mnt
+        run_cmd umount "$pool_mnt"
+        rmdir "$pool_mnt" 2>/dev/null || true
     fi
 
     # Mounting Subvolumes
