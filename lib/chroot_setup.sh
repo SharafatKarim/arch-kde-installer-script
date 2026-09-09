@@ -164,6 +164,7 @@ if [ "$INSTALL_DESKTOP" = true ]; then
             dolphin
             konsole
             kscreen
+            plasma-browser-integration
             plasma-systemmonitor
             spectacle
             ark
