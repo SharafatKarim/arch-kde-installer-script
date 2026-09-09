@@ -300,20 +300,57 @@ run_cmd arch-chroot /mnt /bin/bash /root/installer/chroot_setup.sh
 # Clean up temporary installer files from target
 run_cmd rm -rf /mnt/root/installer
 
-# Clean up local cache on successful installation
-rm -f "$CACHE_FILE"
+# Post-Install Health Checkups
+msg_step "Verifying Installation Health"
 
-msg_step "Installation Complete!"
-msg_ok "Arch Linux with Btrfs and Minimal KDE Plasma has been successfully installed."
+# 1. Kernel and Initramfs check
+if [ -f /mnt/boot/vmlinuz-* ] && [ -f /mnt/boot/initramfs-*.img ]; then
+    msg_ok "Kernel and initramfs images present in /boot."
+else
+    msg_warn "Kernel/initramfs images not found in /boot."
+fi
+
+# 2. GRUB config check
+if [ -f /mnt/boot/grub/grub.cfg ]; then
+    msg_ok "GRUB configuration (/boot/grub/grub.cfg) verified."
+else
+    msg_warn "GRUB configuration (/boot/grub/grub.cfg) missing."
+fi
+
+# 3. fstab check
+if [ -s /mnt/etc/fstab ]; then
+    msg_ok "fstab (/etc/fstab) generated and non-empty."
+else
+    msg_warn "fstab (/etc/fstab) is missing or empty."
+fi
+
+# 4. User and Sudo check
+if grep -q "^${USERNAME}:" /mnt/etc/passwd 2>/dev/null; then
+    msg_ok "User account '${USERNAME}' created."
+fi
+
+echo -e "\n${GREEN}${BOLD}"
+cat << "CONGRATS"
+  _  __                                _       _ 
+ | |/ /___  _ __   __ _ _ __ __ _  ___| |  _  | |
+ | ' // _ \| '_ \ / _` | '__/ _` |/ __| | (_) | |
+ | . \ (_) | | | | (_| | | | (_| | (__|_|  _  |_|
+ |_|\_\___/|_| |_|\__, |_|  \__,_|\___(_) (_) (_)
+                  |___/                           
+    Arch Linux + Btrfs + KDE Plasma is ready!
+CONGRATS
+echo -e "${RESET}"
+
+msg_ok "Kongrats! Your new Arch Linux installation is complete and ready to boot."
 echo ""
-prompt_yes_no "Would you like to unmount all partitions and reboot now?" "N" REBOOT_NOW
+prompt_yes_no "Would you like to unmount all partitions and reboot now?" "Y" REBOOT_NOW
 
 if [ "$REBOOT_NOW" = true ]; then
     msg_info "Unmounting /mnt and rebooting..."
     run_cmd umount -R /mnt
     run_cmd reboot
 else
-    msg_info "You can now inspect your installation in /mnt or unmount manually with:"
+    msg_info "You can inspect your installation in /mnt or unmount manually when ready with:"
     echo -e "  ${YELLOW}umount -R /mnt${RESET}"
     echo -e "  ${YELLOW}reboot${RESET}"
 fi
