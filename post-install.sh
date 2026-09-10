@@ -250,18 +250,24 @@ prompt_yes_no "Configure zram-generator instead of zswap (standalone RAM swap)?"
 prompt_yes_no "Enable periodic SSD TRIM (fstrim.timer)?" "Y" SETUP_TRIM
 prompt_yes_no "Enable Chaotic-AUR and install yay AUR helper?" "Y" SETUP_CHAOTIC_AUR
 prompt_yes_no "Install extra utilities (fastfetch, libnotify, power-profiles-daemon)?" "Y" SETUP_EXTRAS
+prompt_yes_no "Automatically confirm pacman package installations (--noconfirm)? (No = Review pacman prompts)" "Y" PACMAN_NOCONFIRM
 
 # Execution Mode
 echo ""
 prompt_yes_no "You know what you are doing? (Yes: Auto-run all commands; No: Prompt before every command)" "Y" AUTO_MODE
+
+NOCONFIRM_FLAG=""
+if [ "${PACMAN_NOCONFIRM:-true}" = true ]; then
+    NOCONFIRM_FLAG="--noconfirm"
+fi
 
 # 1. Chaotic-AUR & yay
 if [ "$SETUP_CHAOTIC_AUR" = true ]; then
     msg_step "Setting up Chaotic-AUR & yay"
     run_cmd sudo pacman-key --recv-key 3056513887B78AEB --keyserver keyserver.ubuntu.com || true
     run_cmd sudo pacman-key --lsign-key 3056513887B78AEB || true
-    run_cmd sudo pacman -U --noconfirm 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst' || true
-    run_cmd sudo pacman -U --noconfirm 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst' || true
+    run_cmd sudo pacman -U $NOCONFIRM_FLAG 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst' || true
+    run_cmd sudo pacman -U $NOCONFIRM_FLAG 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst' || true
 
     if ! grep -q "\[chaotic-aur\]" /etc/pacman.conf; then
         sudo bash -c "cat << 'EOF' >> /etc/pacman.conf
@@ -271,15 +277,15 @@ Include = /etc/pacman.d/chaotic-mirrorlist
 EOF"
     fi
 
-    run_cmd sudo pacman -Sy --noconfirm
-    run_cmd sudo pacman -S --noconfirm --needed yay
+    run_cmd sudo pacman -Sy $NOCONFIRM_FLAG
+    run_cmd sudo pacman -S $NOCONFIRM_FLAG --needed yay
     msg_ok "Chaotic-AUR and yay configured."
 fi
 
 # 2. Snapper & GRUB Snapshots
 if [ "$SETUP_SNAPPER" = true ]; then
     msg_step "Configuring Snapper & GRUB Snapshot Integration"
-    run_cmd sudo pacman -S --noconfirm --needed snapper snap-pac grub-btrfs inotify-tools
+    run_cmd sudo pacman -S $NOCONFIRM_FLAG --needed snapper snap-pac grub-btrfs inotify-tools
 
     # Unmount /.snapshots if mounted
     sudo umount /.snapshots 2>/dev/null || true
@@ -346,7 +352,7 @@ fi
 # 4. zram-generator
 if [ "$SETUP_ZRAM" = true ]; then
     msg_step "Configuring zram-generator (Disabling zswap to prevent dual-compression conflict)"
-    run_cmd sudo pacman -S --noconfirm --needed zram-generator
+    run_cmd sudo pacman -S $NOCONFIRM_FLAG --needed zram-generator
     if [ -f "${SCRIPT_DIR}/configs/zram-generator.conf" ]; then
         sudo cp "${SCRIPT_DIR}/configs/zram-generator.conf" /etc/systemd/zram-generator.conf
     else
@@ -380,7 +386,7 @@ fi
 # 6. Extras & Utilities
 if [ "$SETUP_EXTRAS" = true ]; then
     msg_step "Installing Extra Utilities"
-    run_cmd sudo pacman -S --noconfirm --needed fastfetch libnotify power-profiles-daemon
+    run_cmd sudo pacman -S $NOCONFIRM_FLAG --needed fastfetch libnotify power-profiles-daemon
     if sudo systemctl enable --now power-profiles-daemon.service 2>/dev/null; then
         msg_ok "power-profiles-daemon service enabled."
     else

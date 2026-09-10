@@ -231,14 +231,19 @@ fi
 run_cmd sed -i 's/^#ParallelDownloads/ParallelDownloads/' /etc/pacman.conf
 run_cmd sed -i '/\[multilib\]/,/Include/ s/^#//' /etc/pacman.conf
 
+NOCONFIRM_FLAG=""
+if [ "${PACMAN_NOCONFIRM:-true}" = true ]; then
+    NOCONFIRM_FLAG="--noconfirm"
+fi
+
 # Sync package databases inside chroot
-run_cmd pacman -Sy --noconfirm
+run_cmd pacman -Sy $NOCONFIRM_FLAG
 
 # Optional GPU Driver Installation
 if [ -n "$GPU_DRIVERS" ]; then
     msg_step "Installing GPU Drivers ($GPU_DRIVERS)"
     # shellcheck disable=SC2086
-    run_cmd pacman -S --noconfirm --needed $GPU_DRIVERS
+    run_cmd pacman -S $NOCONFIRM_FLAG --needed $GPU_DRIVERS
 fi
 
 # Optional Chaotic AUR & yay Setup
@@ -246,8 +251,8 @@ if [ "$ENABLE_CHAOTIC_AUR" = true ]; then
     msg_step "Configuring Chaotic-AUR & Installing yay"
     run_cmd pacman-key --recv-key 3056513887B78AEB --keyserver keyserver.ubuntu.com || true
     run_cmd pacman-key --lsign-key 3056513887B78AEB || true
-    run_cmd pacman -U --noconfirm 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst' || true
-    run_cmd pacman -U --noconfirm 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst' || true
+    run_cmd pacman -U $NOCONFIRM_FLAG 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst' || true
+    run_cmd pacman -U $NOCONFIRM_FLAG 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst' || true
 
     if ! grep -q "\[chaotic-aur\]" /etc/pacman.conf; then
         cat << 'EOF' >> /etc/pacman.conf
@@ -257,13 +262,13 @@ Include = /etc/pacman.d/chaotic-mirrorlist
 EOF
     fi
 
-    run_cmd pacman -Sy --noconfirm
-    run_cmd pacman -S --noconfirm --needed yay || msg_warn "Could not pre-install yay from chaotic-aur. You can install it manually later."
+    run_cmd pacman -Sy $NOCONFIRM_FLAG
+    run_cmd pacman -S $NOCONFIRM_FLAG --needed yay || msg_warn "Could not pre-install yay from chaotic-aur. You can install it manually later."
 fi
 
 # Bootloader Installation (GRUB & Multi-Boot OS Prober)
 msg_step "Installing GRUB Bootloader & Configuring Dual-Boot Support"
-run_cmd pacman -S --noconfirm --needed grub efibootmgr os-prober ntfs-3g
+run_cmd pacman -S $NOCONFIRM_FLAG --needed grub efibootmgr os-prober ntfs-3g
 
 # Enable os-prober in /etc/default/grub
 if grep -q "GRUB_DISABLE_OS_PROBER" /etc/default/grub 2>/dev/null; then
@@ -323,7 +328,7 @@ if [ "$INSTALL_DESKTOP" = true ]; then
         )
     fi
 
-    run_cmd pacman -S --noconfirm --needed "${plasma_pkgs[@]}"
+    run_cmd pacman -S $NOCONFIRM_FLAG --needed "${plasma_pkgs[@]}"
 
     # Enable plasma-login-manager
     run_cmd systemctl enable plasmalogin.service
@@ -333,7 +338,7 @@ fi
 # Optional Bluetooth
 if [ "$ENABLE_BLUETOOTH" = true ]; then
     msg_step "Installing & Enabling Bluetooth"
-    run_cmd pacman -S --noconfirm --needed bluez bluez-utils bluedevil
+    run_cmd pacman -S $NOCONFIRM_FLAG --needed bluez bluez-utils bluedevil
     run_cmd systemctl enable bluetooth.service
 fi
 

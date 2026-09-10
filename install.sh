@@ -88,6 +88,7 @@ save_config() {
         printf 'PLASMA_FLAVOR=%q\n' "${PLASMA_FLAVOR:-}"
         printf 'ENABLE_BLUETOOTH=%q\n' "${ENABLE_BLUETOOTH:-}"
         printf 'ENABLE_REFLECTOR=%q\n' "${ENABLE_REFLECTOR:-}"
+        printf 'PACMAN_NOCONFIRM=%q\n' "${PACMAN_NOCONFIRM:-true}"
         printf 'AUTO_MODE=%q\n' "${AUTO_MODE:-}"
         printf 'DISK_MODE=%q\n' "${DISK_MODE:-}"
         printf 'TARGET_DISK=%q\n' "${TARGET_DISK:-}"
@@ -211,7 +212,11 @@ if [ "$LOADED_FROM_CACHE" != true ]; then
     echo ""
     prompt_yes_no "Sort fastest HTTPS mirrors with Reflector before installing?" "Y" ENABLE_REFLECTOR
 
-    # 8. Execution Mode (Auto / Step-by-step Confirmation)
+    # 8. Pacman Confirmation Mode
+    echo ""
+    prompt_yes_no "Automatically confirm pacman package installations (--noconfirm)? (No = Review pacman prompts)" "Y" PACMAN_NOCONFIRM
+
+    # 9. Execution Mode (Auto / Step-by-step Confirmation)
     echo ""
     prompt_yes_no "You know what you are doing? (Yes: Auto-run all commands; No: Prompt before every command)" "Y" AUTO_MODE
 
@@ -230,6 +235,7 @@ echo -e "  Microcode        : ${GREEN}${UCODE}${RESET}"
 echo -e "  GPU Drivers      : ${GREEN}${GPU_DRIVERS:-None}${RESET}"
 echo -e "  Desktop Package  : ${GREEN}${PLASMA_FLAVOR}${RESET}"
 echo -e "  Reflector Rank   : ${GREEN}${ENABLE_REFLECTOR}${RESET}"
+echo -e "  Pacman Auto-yes  : ${GREEN}${PACMAN_NOCONFIRM:-true}${RESET}"
 echo -e "  Bluetooth        : ${GREEN}${ENABLE_BLUETOOTH}${RESET}"
 echo ""
 
@@ -256,7 +262,7 @@ fi
 
 # Step 2: Pacstrap Base System
 if [ "${INSTALL_STAGE}" = "STORAGE_PREPARED" ]; then
-    bootstrap_system "$KERNEL" "$UCODE" "$ENABLE_REFLECTOR"
+    bootstrap_system "$KERNEL" "$UCODE" "$ENABLE_REFLECTOR" "${PACMAN_NOCONFIRM:-true}"
     set_stage "PACSTRAP_DONE"
 else
     msg_info "Base system already installed via pacstrap (Stage: ${INSTALL_STAGE})."
@@ -281,6 +287,7 @@ if [ "${INSTALL_STAGE}" = "PACSTRAP_DONE" ]; then
         printf 'INSTALL_DESKTOP=%q\n' "${INSTALL_DESKTOP}"
         printf 'PLASMA_FLAVOR=%q\n' "${PLASMA_FLAVOR}"
         printf 'ENABLE_BLUETOOTH=%q\n' "${ENABLE_BLUETOOTH}"
+        printf 'PACMAN_NOCONFIRM=%q\n' "${PACMAN_NOCONFIRM:-true}"
         printf 'AUTO_MODE=%q\n' "${AUTO_MODE}"
     } > /mnt/root/installer/installer_vars.sh
 

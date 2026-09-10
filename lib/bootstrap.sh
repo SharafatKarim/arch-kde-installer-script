@@ -5,6 +5,10 @@ bootstrap_system() {
     local kernel="$1"
     local ucode="$2"
     local enable_reflector="$3"
+    local pacman_noconfirm="${4:-true}"
+
+    local noconfirm_flag=""
+    [ "$pacman_noconfirm" = true ] && noconfirm_flag="--noconfirm"
 
     msg_step "Step 3: Bootstrapping Base System (pacstrap)"
 
@@ -15,7 +19,7 @@ bootstrap_system() {
 
     # Update keyring
     msg_info "Updating archlinux-keyring..."
-    run_cmd pacman -Sy --noconfirm archlinux-keyring
+    run_cmd pacman -Sy $noconfirm_flag archlinux-keyring
 
     # Reflector fast mirror ranking (if enabled by user)
     if [ "$enable_reflector" = true ]; then
