@@ -72,6 +72,34 @@ fi
 CACHE_FILE="${SCRIPT_DIR}/.installer_cache.env"
 LOADED_FROM_CACHE=false
 
+save_config() {
+    cat << CACHE > "$CACHE_FILE"
+HOSTNAME="${HOSTNAME}"
+USERNAME="${USERNAME}"
+USER_PASSWORD="${USER_PASSWORD}"
+ROOT_PASSWORD="${ROOT_PASSWORD}"
+TIMEZONE="${TIMEZONE}"
+LOCALE="${LOCALE}"
+KEYMAP="${KEYMAP}"
+KERNEL="${KERNEL}"
+UCODE="${UCODE}"
+GPU_DRIVERS="${GPU_DRIVERS}"
+INSTALL_DESKTOP="${INSTALL_DESKTOP}"
+PLASMA_FLAVOR="${PLASMA_FLAVOR}"
+ENABLE_BLUETOOTH="${ENABLE_BLUETOOTH}"
+ENABLE_REFLECTOR="${ENABLE_REFLECTOR}"
+AUTO_MODE="${AUTO_MODE}"
+DISK_MODE="${DISK_MODE:-}"
+TARGET_DISK="${TARGET_DISK:-}"
+EFI_PART="${EFI_PART:-}"
+ROOT_PART="${ROOT_PART:-}"
+FORMAT_EFI="${FORMAT_EFI:-}"
+KEEP_HOME="${KEEP_HOME:-}"
+INSTALL_STAGE="${INSTALL_STAGE:-CONFIGURED}"
+CACHE
+    chmod 600 "$CACHE_FILE"
+}
+
 if [ -f "$CACHE_FILE" ]; then
     msg_info "Found saved configuration from a previous run."
     prompt_yes_no "Do you want to RESUME using saved settings?" "Y" RESUME_CACHE
@@ -186,34 +214,6 @@ if [ "$LOADED_FROM_CACHE" != true ]; then
     # 8. Execution Mode (Auto / Step-by-step Confirmation)
     echo ""
     prompt_yes_no "You know what you are doing? (Yes: Auto-run all commands; No: Prompt before every command)" "Y" AUTO_MODE
-
-    save_config() {
-        cat << CACHE > "$CACHE_FILE"
-HOSTNAME="${HOSTNAME}"
-USERNAME="${USERNAME}"
-USER_PASSWORD="${USER_PASSWORD}"
-ROOT_PASSWORD="${ROOT_PASSWORD}"
-TIMEZONE="${TIMEZONE}"
-LOCALE="${LOCALE}"
-KEYMAP="${KEYMAP}"
-KERNEL="${KERNEL}"
-UCODE="${UCODE}"
-GPU_DRIVERS="${GPU_DRIVERS}"
-INSTALL_DESKTOP="${INSTALL_DESKTOP}"
-PLASMA_FLAVOR="${PLASMA_FLAVOR}"
-ENABLE_BLUETOOTH="${ENABLE_BLUETOOTH}"
-ENABLE_REFLECTOR="${ENABLE_REFLECTOR}"
-AUTO_MODE="${AUTO_MODE}"
-DISK_MODE="${DISK_MODE:-}"
-TARGET_DISK="${TARGET_DISK:-}"
-EFI_PART="${EFI_PART:-}"
-ROOT_PART="${ROOT_PART:-}"
-FORMAT_EFI="${FORMAT_EFI:-}"
-KEEP_HOME="${KEEP_HOME:-}"
-INSTALL_STAGE="${INSTALL_STAGE:-CONFIGURED}"
-CACHE
-        chmod 600 "$CACHE_FILE"
-    }
 
     # Save answers to cache file
     save_config
