@@ -23,39 +23,141 @@ msg_err()  { echo -e "${RED}${BOLD}[✗]${RESET} $1"; }
 msg_step() { echo -e "\n${MAGENTA}${BOLD}=== $1 ===${RESET}"; }
 
 run_cmd() {
-    echo -e "${CYAN}${BOLD}> RUNNING:${RESET} ${YELLOW}$*${RESET}"
-    if [ "${AUTO_MODE}" = false ]; then
-        local user_confirm=""
-        echo -ne "${YELLOW}${BOLD}Execute this command? [${GREEN}Y${RESET}/n/q(uit)]: ${RESET}"
-        read -r user_confirm
-        user_confirm=$(echo "$user_confirm" | tr '[:upper:]' '[:lower:]')
-        if [ "$user_confirm" = "q" ] || [ "$user_confirm" = "quit" ]; then
-            msg_err "Aborted by user."
-            exit 1
-        elif [ "$user_confirm" = "n" ] || [ "$user_confirm" = "no" ]; then
-            msg_warn "Skipped: $*"
+    local cmd=("$@")
+    while true; do
+        echo -e "${CYAN}${BOLD}> RUNNING:${RESET} ${YELLOW}${cmd[*]}${RESET}"
+        if [ "${AUTO_MODE}" = false ]; then
+            local user_confirm=""
+            echo -ne "${YELLOW}${BOLD}Execute this command? [${GREEN}Y${RESET}/n/q(uit)]: ${RESET}"
+            read -r user_confirm
+            user_confirm=$(echo "$user_confirm" | tr '[:upper:]' '[:lower:]')
+            if [ "$user_confirm" = "q" ] || [ "$user_confirm" = "quit" ]; then
+                msg_err "Aborted by user."
+                exit 1
+            elif [ "$user_confirm" = "n" ] || [ "$user_confirm" = "no" ]; then
+                msg_warn "Skipped: ${cmd[*]}"
+                return 0
+            fi
+        fi
+
+        "${cmd[@]}"
+        local status=$?
+        if [ $status -eq 0 ]; then
             return 0
         fi
-    fi
-    "$@"
+
+        msg_err "Command failed with exit code $status: ${cmd[*]}"
+
+        # Smart diagnostics for package managers
+        if [[ "${cmd[*]}" =~ pacman|yay ]]; then
+            if ! ping -c 1 -W 2 1.1.1.1 >/dev/null 2>&1 && ! ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
+                msg_warn "Network seems unreachable! Please check your internet connection."
+            fi
+            if [ -f /var/lib/pacman/db.lck ]; then
+                msg_warn "Found stale pacman lock file: /var/lib/pacman/db.lck. Removing it..."
+                sudo rm -f /var/lib/pacman/db.lck 2>/dev/null || true
+            fi
+        fi
+
+        echo ""
+        msg_warn "Failure Options for: ${cmd[*]}"
+        echo -e "  [${GREEN}r${RESET}] ${BOLD}Retry${RESET} command (Default)"
+        echo -e "  [${CYAN}s${RESET}] Drop to interactive ${BOLD}Shell${RESET} (fix network/mirrors, then type 'exit' to return)"
+        echo -e "  [${YELLOW}i${RESET}] ${BOLD}Ignore${RESET} / Skip this failure and continue"
+        echo -e "  [${RED}q${RESET}] ${BOLD}Quit${RESET} and abort script"
+
+        local action=""
+        echo -ne "${BOLD}Choice [${GREEN}r${RESET}/s/i/q]: ${RESET}"
+        read -r action
+        action=$(echo "$action" | tr '[:upper:]' '[:lower:]')
+
+        case "$action" in
+            s|shell)
+                msg_info "Opening interactive subshell. Type 'exit' when finished to resume script."
+                bash --norc -i || bash -i
+                ;;
+            i|ignore|skip)
+                msg_warn "Ignored error. Continuing..."
+                return 0
+                ;;
+            q|quit|abort)
+                msg_err "Aborted by user."
+                exit $status
+                ;;
+            r|retry|*)
+                msg_info "Retrying command..."
+                ;;
+        esac
+    done
 }
 
 run_eval() {
-    echo -e "${CYAN}${BOLD}> RUNNING:${RESET} ${YELLOW}$*${RESET}"
-    if [ "${AUTO_MODE}" = false ]; then
-        local user_confirm=""
-        echo -ne "${YELLOW}${BOLD}Execute this command? [${GREEN}Y${RESET}/n/q(uit)]: ${RESET}"
-        read -r user_confirm
-        user_confirm=$(echo "$user_confirm" | tr '[:upper:]' '[:lower:]')
-        if [ "$user_confirm" = "q" ] || [ "$user_confirm" = "quit" ]; then
-            msg_err "Aborted by user."
-            exit 1
-        elif [ "$user_confirm" = "n" ] || [ "$user_confirm" = "no" ]; then
-            msg_warn "Skipped: $*"
+    local cmd_str="$*"
+    while true; do
+        echo -e "${CYAN}${BOLD}> RUNNING:${RESET} ${YELLOW}${cmd_str}${RESET}"
+        if [ "${AUTO_MODE}" = false ]; then
+            local user_confirm=""
+            echo -ne "${YELLOW}${BOLD}Execute this command? [${GREEN}Y${RESET}/n/q(uit)]: ${RESET}"
+            read -r user_confirm
+            user_confirm=$(echo "$user_confirm" | tr '[:upper:]' '[:lower:]')
+            if [ "$user_confirm" = "q" ] || [ "$user_confirm" = "quit" ]; then
+                msg_err "Aborted by user."
+                exit 1
+            elif [ "$user_confirm" = "n" ] || [ "$user_confirm" = "no" ]; then
+                msg_warn "Skipped: ${cmd_str}"
+                return 0
+            fi
+        fi
+
+        eval "${cmd_str}"
+        local status=$?
+        if [ $status -eq 0 ]; then
             return 0
         fi
-    fi
-    eval "$@"
+
+        msg_err "Command failed with exit code $status: ${cmd_str}"
+
+        # Smart diagnostics for package managers
+        if [[ "${cmd_str}" =~ pacman|yay ]]; then
+            if ! ping -c 1 -W 2 1.1.1.1 >/dev/null 2>&1 && ! ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
+                msg_warn "Network seems unreachable! Please check your internet connection."
+            fi
+            if [ -f /var/lib/pacman/db.lck ]; then
+                msg_warn "Found stale pacman lock file: /var/lib/pacman/db.lck. Removing it..."
+                sudo rm -f /var/lib/pacman/db.lck 2>/dev/null || true
+            fi
+        fi
+
+        echo ""
+        msg_warn "Failure Options for: ${cmd_str}"
+        echo -e "  [${GREEN}r${RESET}] ${BOLD}Retry${RESET} command (Default)"
+        echo -e "  [${CYAN}s${RESET}] Drop to interactive ${BOLD}Shell${RESET} (fix network/mirrors, then type 'exit' to return)"
+        echo -e "  [${YELLOW}i${RESET}] ${BOLD}Ignore${RESET} / Skip this failure and continue"
+        echo -e "  [${RED}q${RESET}] ${BOLD}Quit${RESET} and abort script"
+
+        local action=""
+        echo -ne "${BOLD}Choice [${GREEN}r${RESET}/s/i/q]: ${RESET}"
+        read -r action
+        action=$(echo "$action" | tr '[:upper:]' '[:lower:]')
+
+        case "$action" in
+            s|shell)
+                msg_info "Opening interactive subshell. Type 'exit' when finished to resume script."
+                bash --norc -i || bash -i
+                ;;
+            i|ignore|skip)
+                msg_warn "Ignored error. Continuing..."
+                return 0
+                ;;
+            q|quit|abort)
+                msg_err "Aborted by user."
+                exit $status
+                ;;
+            r|retry|*)
+                msg_info "Retrying command..."
+                ;;
+        esac
+    done
 }
 
 prompt_input() {
