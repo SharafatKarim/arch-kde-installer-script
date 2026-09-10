@@ -43,8 +43,10 @@ run_cmd() {
             fi
         fi
 
+        set +e
         "${cmd[@]}"
         local status=$?
+        set -e
         if [ $status -eq 0 ]; then
             return 0
         fi
@@ -112,8 +114,10 @@ run_eval() {
             fi
         fi
 
+        set +e
         eval "${cmd_str}"
         local status=$?
+        set -e
         if [ $status -eq 0 ]; then
             return 0
         fi
@@ -173,7 +177,11 @@ fi
 run_cmd hwclock --systohc
 
 # Localization
-run_eval "echo '${LOCALE}.UTF-8 UTF-8' >> /etc/locale.gen"
+if grep -q "^#*${LOCALE}\.UTF-8 UTF-8" /etc/locale.gen 2>/dev/null; then
+    run_cmd sed -i "s/^#*${LOCALE}\.UTF-8 UTF-8/${LOCALE}.UTF-8 UTF-8/" /etc/locale.gen
+else
+    run_eval "echo '${LOCALE}.UTF-8 UTF-8' >> /etc/locale.gen"
+fi
 run_cmd locale-gen
 run_eval "echo 'LANG=${LOCALE}.UTF-8' > /etc/locale.conf"
 run_eval "echo 'KEYMAP=${KEYMAP}' > /etc/vconsole.conf"
@@ -206,7 +214,7 @@ if [ -n "$USERNAME" ]; then
     echo "${USERNAME}:${USER_PASSWORD}" | chpasswd
     # Ensure correct permissions on user home directory if preserving
     if [ -d "/home/$USERNAME" ]; then
-        run_cmd chown -R "${USERNAME}:${USERNAME}" "/home/$USERNAME" 2>/dev/null || true
+        chown -R "${USERNAME}:${USERNAME}" "/home/$USERNAME" 2>/dev/null || true
     fi
     # Enable %wheel in sudoers
     run_eval "echo '%wheel ALL=(ALL:ALL) ALL' > /etc/sudoers.d/10-wheel"
@@ -253,10 +261,23 @@ EOF
     run_cmd pacman -S --noconfirm --needed yay || msg_warn "Could not pre-install yay from chaotic-aur. You can install it manually later."
 fi
 
-# Bootloader Installation (GRUB)
-msg_step "Installing GRUB Bootloader"
+# Bootloader Installation (GRUB & Multi-Boot OS Prober)
+msg_step "Installing GRUB Bootloader & Configuring Dual-Boot Support"
+run_cmd pacman -S --noconfirm --needed grub efibootmgr os-prober ntfs-3g
+
+# Enable os-prober in /etc/default/grub
+if grep -q "GRUB_DISABLE_OS_PROBER" /etc/default/grub 2>/dev/null; then
+    run_cmd sed -i 's/^#*GRUB_DISABLE_OS_PROBER=.*/GRUB_DISABLE_OS_PROBER=false/' /etc/default/grub
+else
+    run_eval "echo 'GRUB_DISABLE_OS_PROBER=false' >> /etc/default/grub"
+fi
+
 run_cmd grub-install --target=x86_64-efi --bootloader-id=GRUB --efi-directory=/boot
 run_cmd grub-mkconfig -o /boot/grub/grub.cfg
+
+if [ -d /boot/EFI/Microsoft ] || os-prober 2>/dev/null | grep -qi "Windows"; then
+    msg_ok "Windows Boot Manager detected and integrated into GRUB boot menu."
+fi
 
 # KDE Plasma & Desktop Stack
 if [ "$INSTALL_DESKTOP" = true ]; then

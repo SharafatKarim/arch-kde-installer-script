@@ -50,8 +50,10 @@ run_cmd() {
             fi
         fi
 
+        set +e
         "${cmd[@]}"
         local status=$?
+        set -e
         if [ $status -eq 0 ]; then
             return 0
         fi
@@ -122,8 +124,10 @@ run_eval() {
             fi
         fi
 
+        set +e
         eval "${cmd_str}"
         local status=$?
+        set -e
         if [ $status -eq 0 ]; then
             return 0
         fi

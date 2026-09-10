@@ -44,6 +44,7 @@ bootstrap_system() {
         sudo
         efibootmgr
         grub
+        os-prober
     )
 
     # Microcode

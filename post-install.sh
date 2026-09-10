@@ -40,8 +40,10 @@ run_cmd() {
             fi
         fi
 
+        set +e
         "${cmd[@]}"
         local status=$?
+        set -e
         if [ $status -eq 0 ]; then
             return 0
         fi
@@ -109,8 +111,10 @@ run_eval() {
             fi
         fi
 
+        set +e
         eval "${cmd_str}"
         local status=$?
+        set -e
         if [ $status -eq 0 ]; then
             return 0
         fi
@@ -227,7 +231,7 @@ msg_step "Pre-flight Environment Check"
 
 # Network test
 msg_info "Checking internet connection..."
-if ! ping -c 1 -W 3 1.1.1.1 >/dev/null 2>&1; then
+if ! ping -c 1 -W 3 1.1.1.1 >/dev/null 2>&1 && ! ping -c 1 -W 3 8.8.8.8 >/dev/null 2>&1; then
     msg_err "No active internet connection detected. Please connect to the internet first."
     exit 1
 fi
@@ -304,6 +308,13 @@ if [ "$SETUP_SNAPPER" = true ]; then
     run_cmd sudo systemctl enable --now snapper-cleanup.timer
     run_cmd sudo systemctl enable --now grub-btrfsd.service
 
+    # Ensure os-prober setting is enabled in GRUB config for multi-boot
+    if grep -q "GRUB_DISABLE_OS_PROBER" /etc/default/grub 2>/dev/null; then
+        sudo sed -i 's/^#*GRUB_DISABLE_OS_PROBER=.*/GRUB_DISABLE_OS_PROBER=false/' /etc/default/grub
+    else
+        echo "GRUB_DISABLE_OS_PROBER=false" | sudo tee -a /etc/default/grub >/dev/null
+    fi
+
     # Regenerate GRUB config
     run_cmd sudo grub-mkconfig -o /boot/grub/grub.cfg
     msg_ok "Snapper & GRUB snapshot integration complete."
@@ -321,7 +332,11 @@ if [ "$SETUP_SWAP" = true ] && [ -n "$SWAP_SIZE" ]; then
     if [ ! -f /swap/swapfile ]; then
         run_cmd sudo btrfs filesystem mkswapfile --size "${SWAP_SIZE}g" --uuid clear /swap/swapfile
     fi
-    run_cmd sudo swapon /swap/swapfile 2>/dev/null || true
+    if ! swapon --show | grep -q "/swap/swapfile"; then
+        run_cmd sudo swapon /swap/swapfile
+    else
+        msg_ok "Swapfile is already active."
+    fi
     if ! grep -q "/swap/swapfile" /etc/fstab; then
         echo '/swap/swapfile none swap defaults 0 0' | sudo tee -a /etc/fstab
     fi
@@ -351,7 +366,7 @@ EOF"
     fi
 
     run_cmd sudo systemctl daemon-reload
-    run_cmd sudo systemctl start /dev/zram0 2>/dev/null || true
+    run_cmd sudo systemctl restart systemd-zram-setup@zram0.service 2>/dev/null || run_cmd sudo systemctl start /dev/zram0 2>/dev/null || true
     msg_ok "zram-generator configured and zswap disabled."
 fi
 
@@ -366,7 +381,11 @@ fi
 if [ "$SETUP_EXTRAS" = true ]; then
     msg_step "Installing Extra Utilities"
     run_cmd sudo pacman -S --noconfirm --needed fastfetch libnotify power-profiles-daemon
-    run_cmd sudo systemctl enable --now power-profiles-daemon.service 2>/dev/null || true
+    if sudo systemctl enable --now power-profiles-daemon.service 2>/dev/null; then
+        msg_ok "power-profiles-daemon service enabled."
+    else
+        msg_warn "power-profiles-daemon not supported or masked (common in VMs). Skipping service start."
+    fi
     msg_ok "Extra utilities installed."
 fi
 

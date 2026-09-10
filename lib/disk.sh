@@ -73,7 +73,7 @@ setup_storage() {
         run_cmd sgdisk -n 1:0:+1024M -t 1:ef00 -c 1:"EFI System" "$TARGET_DISK"
         run_cmd sgdisk -n 2:0:0      -t 2:8300 -c 2:"Arch Linux Btrfs" "$TARGET_DISK"
         run_cmd partprobe "$TARGET_DISK"
-        sleep 1
+        udevadm settle 2>/dev/null || sleep 1
     else
         # Manual existing partitions mode
         echo ""
@@ -99,8 +99,26 @@ setup_storage() {
             fi
         done
 
+        # Probe EFI partition for existing bootloaders (e.g. Windows)
+        local default_format_efi="Y"
+        local efi_temp="/tmp_probe_efi"
+        mkdir -p "$efi_temp"
+        if mount -o ro "$EFI_PART" "$efi_temp" 2>/dev/null; then
+            if [ -d "${efi_temp}/EFI/Microsoft" ] || [ -f "${efi_temp}/EFI/Microsoft/Boot/bootmgfw.efi" ]; then
+                echo ""
+                msg_warn "=== Windows Boot Manager detected on ${EFI_PART}! ==="
+                msg_warn "Formatting ${EFI_PART} will DESTROY the Windows bootloader and make Windows unbootable."
+                msg_warn "Defaulting to KEEP / DO NOT FORMAT (${EFI_PART})."
+                default_format_efi="N"
+            elif [ -d "${efi_temp}/EFI" ]; then
+                msg_info "Existing EFI boot directory detected on ${EFI_PART}."
+            fi
+            umount "$efi_temp" 2>/dev/null || true
+        fi
+        rmdir "$efi_temp" 2>/dev/null || true
+
         # 2. Format EFI partition question
-        prompt_yes_no "Format ${EFI_PART} as FAT32? (Choose 'n' if dual-booting with Windows/existing EFI)" "Y" FORMAT_EFI
+        prompt_yes_no "Format ${EFI_PART} as FAT32? (Select 'N' to preserve Windows/existing bootloader)" "$default_format_efi" FORMAT_EFI
 
         # 3. Main Btrfs root partition
         while true; do
@@ -209,24 +227,7 @@ setup_storage() {
     fi
 
     # Mounting Subvolumes
-    msg_step "Mounting Subvolumes"
-    local btrfs_opts="noatime,compress=zstd"
-
-    run_cmd mount -o "${btrfs_opts},subvol=@" "$ROOT_PART" /mnt
-
-    run_cmd mkdir -p /mnt/{boot,home,.snapshots,swap}
-    run_cmd mkdir -p /mnt/var/log
-    run_cmd mkdir -p /mnt/var/cache/pacman/pkg
-
-    run_cmd mount -o "${btrfs_opts},subvol=@home" "$ROOT_PART" /mnt/home
-    run_cmd mount -o "${btrfs_opts},subvol=@pkg" "$ROOT_PART" /mnt/var/cache/pacman/pkg
-    run_cmd mount -o "${btrfs_opts},subvol=@log" "$ROOT_PART" /mnt/var/log
-    run_cmd mount -o "${btrfs_opts},subvol=@snapshots" "$ROOT_PART" /mnt/.snapshots
-    # Swap subvolume mounted with nodatacow (no compression, no CoW)
-    run_cmd mount -o "noatime,nodatacow,subvol=@swap" "$ROOT_PART" /mnt/swap
-
-    # Mount EFI partition
-    run_cmd mount "$EFI_PART" /mnt/boot
+    mount_target_subvolumes "$ROOT_PART" "$EFI_PART"
 
     # Save disk selection to persistent state if save_config is available
     if command -v save_config &>/dev/null; then
@@ -234,6 +235,29 @@ setup_storage() {
     fi
 
     msg_ok "All partitions and subvolumes mounted successfully under /mnt."
+}
+
+# Mount target subvolumes and boot partition reliably under /mnt
+mount_target_subvolumes() {
+    local root_dev="$1"
+    local efi_dev="$2"
+    local btrfs_opts="noatime,compress=zstd"
+
+    msg_step "Mounting Btrfs Subvolumes & EFI Partition"
+
+    mkdir -p /mnt
+    if ! mountpoint -q /mnt; then
+        run_cmd mount -o "${btrfs_opts},subvol=@" "$root_dev" /mnt
+    fi
+
+    mkdir -p /mnt/{boot,home,.snapshots,swap,var/log,var/cache/pacman/pkg}
+
+    mountpoint -q /mnt/home || run_cmd mount -o "${btrfs_opts},subvol=@home" "$root_dev" /mnt/home
+    mountpoint -q /mnt/var/cache/pacman/pkg || run_cmd mount -o "${btrfs_opts},subvol=@pkg" "$root_dev" /mnt/var/cache/pacman/pkg
+    mountpoint -q /mnt/var/log || run_cmd mount -o "${btrfs_opts},subvol=@log" "$root_dev" /mnt/var/log
+    mountpoint -q /mnt/.snapshots || run_cmd mount -o "${btrfs_opts},subvol=@snapshots" "$root_dev" /mnt/.snapshots
+    mountpoint -q /mnt/swap || run_cmd mount -o "noatime,nodatacow,subvol=@swap" "$root_dev" /mnt/swap
+    mountpoint -q /mnt/boot || run_cmd mount "$efi_dev" /mnt/boot
 }
 
 # Mount an existing system installed with this script for chroot / rescue
@@ -285,11 +309,11 @@ mount_existing_system() {
     run_cmd mkdir -p /mnt/{boot,home,.snapshots,var/log,var/cache/pacman/pkg}
 
     # Mount other subvolumes if they exist
-    run_cmd mount -o "${btrfs_opts},subvol=@home" "$ROOT_PART" /mnt/home 2>/dev/null || true
-    run_cmd mount -o "${btrfs_opts},subvol=@pkg" "$ROOT_PART" /mnt/var/cache/pacman/pkg 2>/dev/null || true
-    run_cmd mount -o "${btrfs_opts},subvol=@log" "$ROOT_PART" /mnt/var/log 2>/dev/null || true
-    run_cmd mount -o "${btrfs_opts},subvol=@snapshots" "$ROOT_PART" /mnt/.snapshots 2>/dev/null || true
-    run_cmd mount -o "noatime,nodatacow,subvol=@swap" "$ROOT_PART" /mnt/swap 2>/dev/null || true
+    mount -o "${btrfs_opts},subvol=@home" "$ROOT_PART" /mnt/home 2>/dev/null || true
+    mount -o "${btrfs_opts},subvol=@pkg" "$ROOT_PART" /mnt/var/cache/pacman/pkg 2>/dev/null || true
+    mount -o "${btrfs_opts},subvol=@log" "$ROOT_PART" /mnt/var/log 2>/dev/null || true
+    mount -o "${btrfs_opts},subvol=@snapshots" "$ROOT_PART" /mnt/.snapshots 2>/dev/null || true
+    mount -o "noatime,nodatacow,subvol=@swap" "$ROOT_PART" /mnt/swap 2>/dev/null || true
 
     # Mount EFI
     run_cmd mount "$EFI_PART" /mnt/boot

@@ -45,7 +45,7 @@ msg_ok "UEFI boot mode detected."
 
 # 3. Network check
 msg_info "Checking network connectivity..."
-if ! ping -c 1 -W 3 1.1.1.1 >/dev/null 2>&1; then
+if ! ping -c 1 -W 3 1.1.1.1 >/dev/null 2>&1 && ! ping -c 1 -W 3 8.8.8.8 >/dev/null 2>&1; then
     msg_warn "No active internet connection detected. (Required for fresh install, optional for rescue chroot)"
 else
     msg_ok "Internet connectivity verified."
@@ -63,7 +63,7 @@ if [ "$OP_MODE" = "2" ]; then
 fi
 
 # Fresh install requires active network
-if ! ping -c 1 -W 3 1.1.1.1 >/dev/null 2>&1; then
+if ! ping -c 1 -W 3 1.1.1.1 >/dev/null 2>&1 && ! ping -c 1 -W 3 8.8.8.8 >/dev/null 2>&1; then
     msg_err "Active internet connection is required for installation."
     msg_info "For Wi-Fi, run: nmtui or iwctl"
     exit 1
@@ -73,30 +73,30 @@ CACHE_FILE="${SCRIPT_DIR}/.installer_cache.env"
 LOADED_FROM_CACHE=false
 
 save_config() {
-    cat << CACHE > "$CACHE_FILE"
-HOSTNAME="${HOSTNAME}"
-USERNAME="${USERNAME}"
-USER_PASSWORD="${USER_PASSWORD}"
-ROOT_PASSWORD="${ROOT_PASSWORD}"
-TIMEZONE="${TIMEZONE}"
-LOCALE="${LOCALE}"
-KEYMAP="${KEYMAP}"
-KERNEL="${KERNEL}"
-UCODE="${UCODE}"
-GPU_DRIVERS="${GPU_DRIVERS}"
-INSTALL_DESKTOP="${INSTALL_DESKTOP}"
-PLASMA_FLAVOR="${PLASMA_FLAVOR}"
-ENABLE_BLUETOOTH="${ENABLE_BLUETOOTH}"
-ENABLE_REFLECTOR="${ENABLE_REFLECTOR}"
-AUTO_MODE="${AUTO_MODE}"
-DISK_MODE="${DISK_MODE:-}"
-TARGET_DISK="${TARGET_DISK:-}"
-EFI_PART="${EFI_PART:-}"
-ROOT_PART="${ROOT_PART:-}"
-FORMAT_EFI="${FORMAT_EFI:-}"
-KEEP_HOME="${KEEP_HOME:-}"
-INSTALL_STAGE="${INSTALL_STAGE:-CONFIGURED}"
-CACHE
+    {
+        printf 'HOSTNAME=%q\n' "${HOSTNAME:-}"
+        printf 'USERNAME=%q\n' "${USERNAME:-}"
+        printf 'USER_PASSWORD=%q\n' "${USER_PASSWORD:-}"
+        printf 'ROOT_PASSWORD=%q\n' "${ROOT_PASSWORD:-}"
+        printf 'TIMEZONE=%q\n' "${TIMEZONE:-}"
+        printf 'LOCALE=%q\n' "${LOCALE:-}"
+        printf 'KEYMAP=%q\n' "${KEYMAP:-}"
+        printf 'KERNEL=%q\n' "${KERNEL:-}"
+        printf 'UCODE=%q\n' "${UCODE:-}"
+        printf 'GPU_DRIVERS=%q\n' "${GPU_DRIVERS:-}"
+        printf 'INSTALL_DESKTOP=%q\n' "${INSTALL_DESKTOP:-}"
+        printf 'PLASMA_FLAVOR=%q\n' "${PLASMA_FLAVOR:-}"
+        printf 'ENABLE_BLUETOOTH=%q\n' "${ENABLE_BLUETOOTH:-}"
+        printf 'ENABLE_REFLECTOR=%q\n' "${ENABLE_REFLECTOR:-}"
+        printf 'AUTO_MODE=%q\n' "${AUTO_MODE:-}"
+        printf 'DISK_MODE=%q\n' "${DISK_MODE:-}"
+        printf 'TARGET_DISK=%q\n' "${TARGET_DISK:-}"
+        printf 'EFI_PART=%q\n' "${EFI_PART:-}"
+        printf 'ROOT_PART=%q\n' "${ROOT_PART:-}"
+        printf 'FORMAT_EFI=%q\n' "${FORMAT_EFI:-}"
+        printf 'KEEP_HOME=%q\n' "${KEEP_HOME:-}"
+        printf 'INSTALL_STAGE=%q\n' "${INSTALL_STAGE:-CONFIGURED}"
+    } > "$CACHE_FILE"
     chmod 600 "$CACHE_FILE"
 }
 
@@ -251,18 +251,7 @@ if [ "${INSTALL_STAGE}" = "CONFIGURED" ] || [ -z "${INSTALL_STAGE}" ]; then
     set_stage "STORAGE_PREPARED"
 else
     msg_info "Storage already partitioned and prepared (Stage: ${INSTALL_STAGE})."
-    # Ensure partitions/subvolumes are mounted if restarting after storage was prepared
-    if ! mountpoint -q /mnt; then
-        msg_info "Remounting subvolumes under /mnt..."
-        local btrfs_opts="noatime,compress=zstd"
-        run_cmd mount -o "${btrfs_opts},subvol=@" "$ROOT_PART" /mnt
-        run_cmd mount -o "${btrfs_opts},subvol=@home" "$ROOT_PART" /mnt/home 2>/dev/null || true
-        run_cmd mount -o "${btrfs_opts},subvol=@pkg" "$ROOT_PART" /mnt/var/cache/pacman/pkg 2>/dev/null || true
-        run_cmd mount -o "${btrfs_opts},subvol=@log" "$ROOT_PART" /mnt/var/log 2>/dev/null || true
-        run_cmd mount -o "${btrfs_opts},subvol=@snapshots" "$ROOT_PART" /mnt/.snapshots 2>/dev/null || true
-        run_cmd mount -o "noatime,nodatacow,subvol=@swap" "$ROOT_PART" /mnt/swap 2>/dev/null || true
-        run_cmd mount "$EFI_PART" /mnt/boot 2>/dev/null || true
-    fi
+    mount_target_subvolumes "$ROOT_PART" "$EFI_PART"
 fi
 
 # Step 2: Pacstrap Base System
@@ -279,21 +268,21 @@ if [ "${INSTALL_STAGE}" = "PACSTRAP_DONE" ]; then
 
     mkdir -p /mnt/root/installer
 
-    cat << VARS > /mnt/root/installer/installer_vars.sh
-HOSTNAME="${HOSTNAME}"
-USERNAME="${USERNAME}"
-USER_PASSWORD="${USER_PASSWORD}"
-ROOT_PASSWORD="${ROOT_PASSWORD}"
-TIMEZONE="${TIMEZONE}"
-LOCALE="${LOCALE}"
-KEYMAP="${KEYMAP}"
-KERNEL="${KERNEL}"
-GPU_DRIVERS="${GPU_DRIVERS}"
-INSTALL_DESKTOP="${INSTALL_DESKTOP}"
-PLASMA_FLAVOR="${PLASMA_FLAVOR}"
-ENABLE_BLUETOOTH="${ENABLE_BLUETOOTH}"
-AUTO_MODE="${AUTO_MODE}"
-VARS
+    {
+        printf 'HOSTNAME=%q\n' "${HOSTNAME}"
+        printf 'USERNAME=%q\n' "${USERNAME}"
+        printf 'USER_PASSWORD=%q\n' "${USER_PASSWORD}"
+        printf 'ROOT_PASSWORD=%q\n' "${ROOT_PASSWORD}"
+        printf 'TIMEZONE=%q\n' "${TIMEZONE}"
+        printf 'LOCALE=%q\n' "${LOCALE}"
+        printf 'KEYMAP=%q\n' "${KEYMAP}"
+        printf 'KERNEL=%q\n' "${KERNEL}"
+        printf 'GPU_DRIVERS=%q\n' "${GPU_DRIVERS}"
+        printf 'INSTALL_DESKTOP=%q\n' "${INSTALL_DESKTOP}"
+        printf 'PLASMA_FLAVOR=%q\n' "${PLASMA_FLAVOR}"
+        printf 'ENABLE_BLUETOOTH=%q\n' "${ENABLE_BLUETOOTH}"
+        printf 'AUTO_MODE=%q\n' "${AUTO_MODE}"
+    } > /mnt/root/installer/installer_vars.sh
 
     chmod 600 /mnt/root/installer/installer_vars.sh
 
@@ -316,7 +305,7 @@ VARS
 
     # Ensure proper user ownership on post-install script
     if [ -n "$USERNAME" ]; then
-        run_cmd arch-chroot /mnt chown -R "${USERNAME}:${USERNAME}" "/home/${USERNAME}/post-install.sh" "/home/${USERNAME}/configs" 2>/dev/null || true
+        arch-chroot /mnt chown -R "${USERNAME}:${USERNAME}" "/home/${USERNAME}" 2>/dev/null || true
     fi
 
     # Clean up temporary installer files from target
