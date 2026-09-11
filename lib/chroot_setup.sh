@@ -199,8 +199,17 @@ cat << HOSTS > /etc/hosts
 127.0.1.1   ${HOSTNAME}.localdomain ${HOSTNAME}
 HOSTS
 
-# Enable NetworkManager
+# Enable NetworkManager & Maintenance Timers (ArchWiki)
 run_cmd systemctl enable NetworkManager.service
+run_cmd systemctl enable fstrim.timer
+run_cmd systemctl enable paccache.timer 2>/dev/null || true
+run_cmd systemctl enable btrfs-scrub@-.timer 2>/dev/null || true
+
+# Deploy optimal I/O schedulers udev rules (ArchWiki: Improving performance)
+if [ -f /root/installer/configs/60-ioschedulers.rules ]; then
+    run_cmd mkdir -p /etc/udev/rules.d
+    run_cmd cp /root/installer/configs/60-ioschedulers.rules /etc/udev/rules.d/60-ioschedulers.rules
+fi
 
 # Root & User Passwords
 msg_step "Configuring User Accounts & Sudo"
@@ -242,6 +251,7 @@ if ! grep -q "ILoveCandy" /etc/pacman.conf; then
     run_cmd sed -i '/^Color/a ILoveCandy' /etc/pacman.conf
 fi
 run_cmd sed -i 's/^#ParallelDownloads/ParallelDownloads/' /etc/pacman.conf
+run_cmd sed -i 's/^#VerbosePkgLists/VerbosePkgLists/' /etc/pacman.conf
 run_cmd sed -i '/\[multilib\]/,/Include/ s/^#//' /etc/pacman.conf
 
 NOCONFIRM_FLAG=""
@@ -325,31 +335,41 @@ fi
 # KDE Plasma & Desktop Stack
 if [ "$INSTALL_DESKTOP" = true ]; then
     if [ "$PLASMA_FLAVOR" = "full" ]; then
-        msg_step "Installing Full KDE Plasma Package Group & PipeWire"
+        msg_step "Installing Full KDE Plasma Package Group & Multimedia Stack"
         plasma_pkgs=(
             plasma
             plasma-login-manager
+            power-profiles-daemon
             pipewire
             pipewire-pulse
+            pipewire-alsa
             wireplumber
             dolphin
             konsole
             spectacle
             ark
+            7zip
+            unrar
+            ffmpegthumbs
+            kdegraphics-thumbnailers
+            xdg-user-dirs
             noto-fonts
             noto-fonts-emoji
             noto-fonts-cjk
+            ttf-hack
         )
     else
-        msg_step "Installing Minimal KDE Plasma (plasma-desktop) & PipeWire Stack"
+        msg_step "Installing Minimal KDE Plasma (plasma-desktop) & Multimedia Stack"
         plasma_pkgs=(
             plasma-desktop
             plasma-login-manager
             xdg-desktop-portal-kde
             polkit-kde-agent
             powerdevil
+            power-profiles-daemon
             pipewire
             pipewire-pulse
+            pipewire-alsa
             wireplumber
             plasma-nm
             plasma-pa
@@ -360,11 +380,17 @@ if [ "$INSTALL_DESKTOP" = true ]; then
             plasma-systemmonitor
             spectacle
             ark
+            7zip
+            unrar
+            ffmpegthumbs
+            kdegraphics-thumbnailers
+            xdg-user-dirs
             kde-gtk-config
             breeze-gtk
             noto-fonts
             noto-fonts-emoji
             noto-fonts-cjk
+            ttf-hack
         )
     fi
 
@@ -373,12 +399,23 @@ if [ "$INSTALL_DESKTOP" = true ]; then
     # Enable plasma-login-manager
     run_cmd systemctl enable plasmalogin.service
     msg_ok "plasma-login-manager (plasmalogin.service) enabled."
+
+    # Enable power-profiles-daemon for KDE power slider integration
+    run_cmd systemctl enable power-profiles-daemon.service 2>/dev/null || true
+
+    # Initialize standard user directories
+    if [ -n "$USERNAME" ] && command -v xdg-user-dirs-update &>/dev/null; then
+        su - "$USERNAME" -c "xdg-user-dirs-update" 2>/dev/null || true
+    fi
 fi
 
 # Optional Bluetooth
 if [ "$ENABLE_BLUETOOTH" = true ]; then
     msg_step "Installing & Enabling Bluetooth"
     run_cmd pacman -S $NOCONFIRM_FLAG --needed bluez bluez-utils bluedevil
+    if [ -f /etc/bluetooth/main.conf ]; then
+        run_cmd sed -i 's/^#*AutoEnable *=.*/AutoEnable = true/' /etc/bluetooth/main.conf
+    fi
     run_cmd systemctl enable bluetooth.service
 fi
 

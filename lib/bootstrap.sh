@@ -53,6 +53,8 @@ bootstrap_system() {
         efibootmgr
         grub
         os-prober
+        bash-completion
+        pacman-contrib
     )
 
     # Microcode

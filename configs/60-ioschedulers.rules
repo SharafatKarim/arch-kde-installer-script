@@ -1,0 +1,9 @@
+# Set optimal I/O schedulers based on disk type (ArchWiki: Improving performance)
+# HDD: BFQ scheduler optimizes throughput and prevents latency starvation
+ACTION=="add|change", KERNEL=="sd[a-z]*", ATTR{queue/rotational}=="1", ATTR{queue/scheduler}="bfq"
+
+# SATA SSD / eMMC: BFQ scheduler prioritizes interactive desktop responsiveness
+ACTION=="add|change", KERNEL=="sd[a-z]*|mmcblk[0-9]*", ATTR{queue/rotational}=="0", ATTR{queue/scheduler}="bfq"
+
+# NVMe SSD: none (no-op) scheduler avoids CPU queuing overhead on multi-queue hardware
+ACTION=="add|change", KERNEL=="nvme[0-9]*", ENV{DEVTYPE}=="disk", ATTR{queue/scheduler}="none"

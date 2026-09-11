@@ -253,15 +253,45 @@ msg_ok "Internet connectivity verified."
 msg_step "Post-Installation Options"
 
 prompt_yes_no "Configure Snapper & GRUB Bootable Snapshots (snapper, snap-pac, grub-btrfsd)?" "Y" SETUP_SNAPPER
-prompt_yes_no "Configure Btrfs Swapfile on dedicated @swap subvolume (uses kernel zswap automatically)?" "Y" SETUP_SWAP
-if [ "$SETUP_SWAP" = true ]; then
-    prompt_input "Enter Swapfile size in GiB" "8" SWAP_SIZE
-fi
+# Detect total physical RAM in GiB for optimal swap sizing
+TOTAL_RAM_GB=$(awk '/MemTotal/ {printf "%.0f\n", $2/(1024*1024)}' /proc/meminfo 2>/dev/null || echo "8")
+[ -z "$TOTAL_RAM_GB" ] || [ "$TOTAL_RAM_GB" -le 0 ] && TOTAL_RAM_GB="8"
 
-prompt_yes_no "Configure zram-generator instead of zswap (standalone RAM swap)?" "N" SETUP_ZRAM
+echo ""
+msg_info "Memory & Swap Architecture (ArchWiki):"
+echo "  1) Hybrid: ZRAM + Btrfs Swapfile [Default & Recommended]"
+echo "     - ZRAM (${TOTAL_RAM_GB}G/2 in RAM with zstd, pri=100) absorbs all normal multitasking with 0 disk wear."
+echo "     - Swapfile (${TOTAL_RAM_GB}G on @swap, pri=10) provides emergency overflow & hibernation support."
+echo "  2) ZRAM Only (Compressed RAM swap; fastest, 0 disk wear, no hibernation)"
+echo "  3) Btrfs Swapfile Only (Disk swapfile with kernel zswap caching)"
+echo "  4) None (Skip swap configuration)"
+prompt_input "Select swap strategy (1/2/3/4)" "1" SWAP_STRATEGY_CHOICE
+
+SETUP_SWAP=false
+SETUP_ZRAM=false
+SWAP_SIZE="$TOTAL_RAM_GB"
+
+case "$SWAP_STRATEGY_CHOICE" in
+    1)
+        SETUP_SWAP=true
+        SETUP_ZRAM=true
+        prompt_input "Enter Btrfs Swapfile size in GiB (equal to RAM for hibernation)" "$TOTAL_RAM_GB" SWAP_SIZE
+        ;;
+    2)
+        SETUP_ZRAM=true
+        ;;
+    3)
+        SETUP_SWAP=true
+        prompt_input "Enter Btrfs Swapfile size in GiB" "$TOTAL_RAM_GB" SWAP_SIZE
+        ;;
+    *)
+        SETUP_SWAP=false
+        SETUP_ZRAM=false
+        ;;
+esac
 prompt_yes_no "Enable periodic SSD TRIM (fstrim.timer)?" "Y" SETUP_TRIM
 prompt_yes_no "Enable Chaotic-AUR and install yay AUR helper?" "Y" SETUP_CHAOTIC_AUR
-prompt_yes_no "Install extra utilities (fastfetch, libnotify, power-profiles-daemon)?" "Y" SETUP_EXTRAS
+prompt_yes_no "Install extra utilities (fastfetch, libnotify, power-profiles-daemon, earlyoom)?" "Y" SETUP_EXTRAS
 prompt_yes_no "Automatically confirm pacman package installations (--noconfirm)? (No = Review pacman prompts)" "Y" PACMAN_NOCONFIRM
 
 # Execution Mode
@@ -364,15 +394,38 @@ if [ "$SETUP_SWAP" = true ] && [ -n "$SWAP_SIZE" ]; then
         if [ ! -f /swap/swapfile ]; then
             run_cmd sudo btrfs filesystem mkswapfile --size "${SWAP_SIZE}g" --uuid clear /swap/swapfile
         fi
+
+        # Priority 10 for disk swap if ZRAM is also used (Scenario B: Hybrid)
+        local fstab_opts="defaults"
+        local swapon_opts=()
+        if [ "$SETUP_ZRAM" = true ]; then
+            fstab_opts="defaults,pri=10"
+            swapon_opts=("-p" "10")
+        fi
+
         if ! swapon --show | grep -q "/swap/swapfile"; then
-            run_cmd sudo swapon /swap/swapfile
+            run_cmd sudo swapon "${swapon_opts[@]}" /swap/swapfile
         else
             msg_ok "Swapfile is already active."
         fi
+
+        local fstab_line="/swap/swapfile none swap ${fstab_opts} 0 0"
         if ! grep -q "/swap/swapfile" /etc/fstab; then
-            echo '/swap/swapfile none swap defaults 0 0' | sudo tee -a /etc/fstab
+            echo "$fstab_line" | sudo tee -a /etc/fstab
+        else
+            sudo sed -i "s|^/swap/swapfile.*|${fstab_line}|" /etc/fstab
         fi
-        msg_ok "Swapfile active at /swap/swapfile."
+
+        # Query hibernation parameters from Btrfs swapfile (ArchWiki)
+        local root_uuid=""
+        root_uuid=$(findmnt -no UUID -T /swap/swapfile 2>/dev/null || true)
+        local resume_offset=""
+        resume_offset=$(sudo btrfs inspect-internal map-swapfile -r /swap/swapfile 2>/dev/null || true)
+        if [ -n "$root_uuid" ] && [ -n "$resume_offset" ]; then
+            msg_ok "Btrfs swapfile ready (Priority: ${fstab_opts})."
+            msg_info "Hibernation Parameters (if you wish to enable suspend-to-disk in GRUB):"
+            echo -e "  ${CYAN}${BOLD}resume=UUID=${root_uuid} resume_offset=${resume_offset}${RESET}"
+        fi
     fi
 fi
 
@@ -387,6 +440,8 @@ if [ "$SETUP_ZRAM" = true ]; then
 [zram0]
 zram-size = ram / 2
 compression-algorithm = zstd
+swap-priority = 100
+fs-type = swap
 EOF"
     fi
 
@@ -402,26 +457,65 @@ EOF"
     if ! sudo systemctl restart systemd-zram-setup@zram0.service 2>/dev/null; then
         sudo systemctl start /dev/zram0 2>/dev/null || true
     fi
-    msg_ok "zram-generator configured and zswap disabled."
+    msg_ok "zram-generator configured (Priority: 100) and zswap disabled."
 fi
 
-# 5. SSD TRIM
+# Apply Unified VM Sysctl Performance Tuning (ArchWiki)
+if [ "$SETUP_ZRAM" = true ]; then
+    sudo rm -f /etc/sysctl.d/99-vm-swap-parameters.conf /etc/sysctl.d/99-vm-zram-parameters.conf 2>/dev/null || true
+    sudo bash -c "cat << 'EOF' > /etc/sysctl.d/99-vm-parameters.conf
+# ArchWiki ZRAM tuning: High swappiness prioritizes fast compressed RAM over dropping page cache
+vm.swappiness = 180
+vm.watermark_boost_factor = 0
+vm.watermark_scale_factor = 125
+vm.page-cluster = 0
+EOF"
+    sudo sysctl --system 2>/dev/null || true
+    msg_ok "VM parameters tuned for ZRAM (swappiness=180, page-cluster=0)."
+elif [ "$SETUP_SWAP" = true ]; then
+    sudo rm -f /etc/sysctl.d/99-vm-swap-parameters.conf /etc/sysctl.d/99-vm-zram-parameters.conf 2>/dev/null || true
+    sudo bash -c "cat << 'EOF' > /etc/sysctl.d/99-vm-parameters.conf
+# ArchWiki Disk Swap tuning: Low swappiness prevents premature SSD writes
+vm.swappiness = 10
+EOF"
+    sudo sysctl --system 2>/dev/null || true
+    msg_ok "VM parameters tuned for Disk Swap (swappiness=10)."
+fi
+
+if [ "$SETUP_ZRAM" = true ] || [ "$SETUP_SWAP" = true ]; then
+    echo ""
+    msg_info "Active Swap Configuration Summary:"
+    swapon --show || true
+fi
+
+# 5. SSD TRIM & Btrfs Maintenance
 if [ "$SETUP_TRIM" = true ]; then
-    msg_step "Enabling SSD TRIM Timer"
+    msg_step "Enabling SSD TRIM & Btrfs Maintenance Timers"
     run_cmd sudo systemctl enable --now fstrim.timer
-    msg_ok "fstrim.timer enabled."
+    run_cmd sudo systemctl enable --now btrfs-scrub@-.timer 2>/dev/null || true
+    msg_ok "fstrim.timer and btrfs-scrub@-.timer enabled."
 fi
 
 # 6. Extras & Utilities
 if [ "$SETUP_EXTRAS" = true ]; then
-    msg_step "Installing Extra Utilities"
-    run_cmd sudo pacman -S $NOCONFIRM_FLAG --needed fastfetch libnotify power-profiles-daemon
+    msg_step "Installing Extra Utilities & Performance Tuning"
+    run_cmd sudo pacman -S $NOCONFIRM_FLAG --needed fastfetch libnotify power-profiles-daemon earlyoom
     if sudo systemctl enable --now power-profiles-daemon.service 2>/dev/null; then
         msg_ok "power-profiles-daemon service enabled."
     else
         msg_warn "power-profiles-daemon not supported or masked (common in VMs). Skipping service start."
     fi
-    msg_ok "Extra utilities installed."
+    if sudo systemctl enable --now earlyoom.service 2>/dev/null; then
+        msg_ok "earlyoom service enabled for proactive OOM freeze protection."
+    fi
+
+    # Deploy optimal I/O schedulers rule if present (ArchWiki: Improving performance)
+    if [ -f "${SCRIPT_DIR}/configs/60-ioschedulers.rules" ]; then
+        sudo cp "${SCRIPT_DIR}/configs/60-ioschedulers.rules" /etc/udev/rules.d/60-ioschedulers.rules
+        sudo udevadm control --reload-rules && sudo udevadm trigger 2>/dev/null || true
+        msg_ok "I/O schedulers configured (BFQ for SATA/HDD, none for NVMe)."
+    fi
+    msg_ok "Extra utilities installed and tuned."
 fi
 
 echo -e "\n${GREEN}${BOLD}"

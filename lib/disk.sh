@@ -264,7 +264,7 @@ mount_target_subvolumes() {
     mountpoint -q /mnt/var/cache/pacman/pkg || run_cmd mount -o "${btrfs_opts},subvol=@pkg" "$root_dev" /mnt/var/cache/pacman/pkg
     mountpoint -q /mnt/var/log || run_cmd mount -o "${btrfs_opts},subvol=@log" "$root_dev" /mnt/var/log
     mountpoint -q /mnt/.snapshots || run_cmd mount -o "${btrfs_opts},subvol=@snapshots" "$root_dev" /mnt/.snapshots
-    mountpoint -q /mnt/swap || run_cmd mount -o "noatime,nodatacow,subvol=@swap" "$root_dev" /mnt/swap
+    mountpoint -q /mnt/swap || run_cmd mount -o "noatime,subvol=@swap" "$root_dev" /mnt/swap
     mountpoint -q /mnt/boot || run_cmd mount "$efi_dev" /mnt/boot
 }
 
@@ -321,7 +321,7 @@ mount_existing_system() {
     mount -o "${btrfs_opts},subvol=@pkg" "$ROOT_PART" /mnt/var/cache/pacman/pkg 2>/dev/null || true
     mount -o "${btrfs_opts},subvol=@log" "$ROOT_PART" /mnt/var/log 2>/dev/null || true
     mount -o "${btrfs_opts},subvol=@snapshots" "$ROOT_PART" /mnt/.snapshots 2>/dev/null || true
-    mount -o "noatime,nodatacow,subvol=@swap" "$ROOT_PART" /mnt/swap 2>/dev/null || true
+    mount -o "noatime,subvol=@swap" "$ROOT_PART" /mnt/swap 2>/dev/null || true
 
     # Mount EFI
     run_cmd mount "$EFI_PART" /mnt/boot

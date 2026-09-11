@@ -330,6 +330,7 @@ if [ "${INSTALL_STAGE}" = "PACSTRAP_DONE" ]; then
     # Copy config templates and chroot script
     cp "${SCRIPT_DIR}/lib/chroot_setup.sh" /mnt/root/installer/chroot_setup.sh
     chmod +x /mnt/root/installer/chroot_setup.sh
+    cp -r "${SCRIPT_DIR}/configs" /mnt/root/installer/
 
     # Place post-install.sh in newly created system
     if [ -n "$USERNAME" ]; then
