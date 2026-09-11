@@ -106,6 +106,7 @@ if [ -f "$CACHE_FILE" ]; then
     msg_info "Found saved configuration from a previous run."
     prompt_yes_no "Do you want to RESUME using saved settings?" "Y" RESUME_CACHE
     if [ "$RESUME_CACHE" = true ]; then
+        # shellcheck source=/dev/null
         source "$CACHE_FILE"
         LOADED_FROM_CACHE=true
         msg_ok "Loaded configuration from cache."

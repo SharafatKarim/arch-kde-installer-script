@@ -44,7 +44,7 @@ run_cmd() {
         "${cmd[@]}"
         local status=$?
         set -e
-        if [ $status -eq 0 ]; then
+        if [ "$status" -eq 0 ]; then
             return 0
         fi
 
@@ -84,7 +84,7 @@ run_cmd() {
                 ;;
             q|quit|abort)
                 msg_err "Aborted by user."
-                exit $status
+                exit "$status"
                 ;;
             r|retry|*)
                 msg_info "Retrying command..."
@@ -115,7 +115,7 @@ run_eval() {
         eval "${cmd_str}"
         local status=$?
         set -e
-        if [ $status -eq 0 ]; then
+        if [ "$status" -eq 0 ]; then
             return 0
         fi
 
@@ -155,7 +155,7 @@ run_eval() {
                 ;;
             q|quit|abort)
                 msg_err "Aborted by user."
-                exit $status
+                exit "$status"
                 ;;
             r|retry|*)
                 msg_info "Retrying command..."
@@ -269,6 +269,11 @@ prompt_input "Select swap strategy (1/2/3/4)" "1" SWAP_STRATEGY_CHOICE
 
 SETUP_SWAP=false
 SETUP_ZRAM=false
+SETUP_TRIM=false
+SETUP_CHAOTIC_AUR=false
+SETUP_EXTRAS=false
+PACMAN_NOCONFIRM=true
+AUTO_MODE=true
 SWAP_SIZE="$TOTAL_RAM_GB"
 
 case "$SWAP_STRATEGY_CHOICE" in

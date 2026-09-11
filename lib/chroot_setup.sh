@@ -5,8 +5,10 @@ set -e
 
 # Source variables passed via environment file
 if [ -f /root/installer/installer_vars.sh ]; then
+    # shellcheck source=/dev/null
     source /root/installer/installer_vars.sh
 elif [ -f /tmp/installer_vars.sh ]; then
+    # shellcheck source=/dev/null
     source /tmp/installer_vars.sh
 fi
 
@@ -47,7 +49,7 @@ run_cmd() {
         "${cmd[@]}"
         local status=$?
         set -e
-        if [ $status -eq 0 ]; then
+        if [ "$status" -eq 0 ]; then
             return 0
         fi
 
@@ -87,7 +89,7 @@ run_cmd() {
                 ;;
             q|quit|abort)
                 msg_err "Aborted by user."
-                exit $status
+                exit "$status"
                 ;;
             r|retry|*)
                 msg_info "Retrying command..."
@@ -118,7 +120,7 @@ run_eval() {
         eval "${cmd_str}"
         local status=$?
         set -e
-        if [ $status -eq 0 ]; then
+        if [ "$status" -eq 0 ]; then
             return 0
         fi
 
@@ -158,7 +160,7 @@ run_eval() {
                 ;;
             q|quit|abort)
                 msg_err "Aborted by user."
-                exit $status
+                exit "$status"
                 ;;
             r|retry|*)
                 msg_info "Retrying command..."
