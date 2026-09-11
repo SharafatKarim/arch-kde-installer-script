@@ -66,9 +66,15 @@ bootstrap_system() {
     echo -e "${CYAN}${base_pkgs[*]}${RESET}"
 
     local pacstrap_flags=("-K")
-    [ "$pacman_noconfirm" = true ] && pacstrap_flags+=("-N")
+    [ "$pacman_noconfirm" = false ] && pacstrap_flags+=("-i")
 
     run_cmd pacstrap "${pacstrap_flags[@]}" /mnt "${base_pkgs[@]}"
+
+    # Verify base system was actually installed to target
+    if [ ! -d /mnt/usr ] || { [ ! -x /mnt/usr/bin/bash ] && [ ! -x /mnt/bin/bash ]; }; then
+        msg_err "pacstrap failed: Base system packages were not installed to /mnt."
+        exit 1
+    fi
 
     # Copy optimized mirrorlist to new system
     if [ -f /etc/pacman.d/mirrorlist ]; then

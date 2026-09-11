@@ -296,7 +296,7 @@ else
 fi
 
 # Step 2: Pacstrap Base System
-if [ "${INSTALL_STAGE}" = "STORAGE_PREPARED" ]; then
+if [ "${INSTALL_STAGE}" = "STORAGE_PREPARED" ] || { [ ! -x /mnt/bin/bash ] && [ ! -x /mnt/usr/bin/bash ]; }; then
     bootstrap_system "$KERNEL" "$UCODE" "$ENABLE_REFLECTOR" "${PACMAN_NOCONFIRM:-true}"
     set_stage "PACSTRAP_DONE"
 else
