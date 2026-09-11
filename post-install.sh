@@ -51,7 +51,7 @@ run_cmd() {
         msg_err "Command failed with exit code $status: ${cmd[*]}"
 
         # Smart diagnostics for package managers
-        if [[ "${cmd[*]}" =~ pacman|yay ]]; then
+        if [[ "${cmd[*]}" =~ pacman|yay|paru ]]; then
             if ! ping -c 1 -W 2 1.1.1.1 >/dev/null 2>&1 && ! ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
                 msg_warn "Network seems unreachable! Please check your internet connection."
             fi
@@ -122,7 +122,7 @@ run_eval() {
         msg_err "Command failed with exit code $status: ${cmd_str}"
 
         # Smart diagnostics for package managers
-        if [[ "${cmd_str}" =~ pacman|yay ]]; then
+        if [[ "${cmd_str}" =~ pacman|yay|paru ]]; then
             if ! ping -c 1 -W 2 1.1.1.1 >/dev/null 2>&1 && ! ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
                 msg_warn "Network seems unreachable! Please check your internet connection."
             fi
@@ -252,6 +252,7 @@ msg_ok "Internet connectivity verified."
 # Interactive Configuration
 msg_step "Post-Installation Options"
 
+SETUP_SNAPPER=false
 prompt_yes_no "Configure Snapper & GRUB Bootable Snapshots (snapper, snap-pac, grub-btrfsd)?" "Y" SETUP_SNAPPER
 # Detect total physical RAM in GiB for optimal swap sizing
 TOTAL_RAM_GB=$(awk '/MemTotal/ {printf "%.0f\n", $2/(1024*1024)}' /proc/meminfo 2>/dev/null || echo "8")
@@ -271,6 +272,7 @@ SETUP_SWAP=false
 SETUP_ZRAM=false
 SETUP_TRIM=false
 SETUP_CHAOTIC_AUR=false
+AUR_HELPER="yay"
 SETUP_EXTRAS=false
 PACMAN_NOCONFIRM=true
 AUTO_MODE=true
@@ -295,7 +297,27 @@ case "$SWAP_STRATEGY_CHOICE" in
         ;;
 esac
 prompt_yes_no "Enable periodic SSD TRIM (fstrim.timer)?" "Y" SETUP_TRIM
-prompt_yes_no "Enable Chaotic-AUR and install yay AUR helper?" "Y" SETUP_CHAOTIC_AUR
+
+echo ""
+msg_info "AUR & Third-Party Repositories:"
+prompt_yes_no "Enable Chaotic-AUR repository (pre-built binaries for AUR packages)?" "Y" SETUP_CHAOTIC_AUR
+
+echo ""
+msg_info "AUR Helper Selection:"
+echo "  1) yay  (Go-based; fast, pacman-like syntax, widely used) [Default & Recommended]"
+echo "  2) paru (Rust-based; feature-rich, built-in PKGBUILD review pager)"
+echo "  3) Both (Install both yay and paru)"
+echo "  4) None (Skip AUR helper installation)"
+prompt_input "Select AUR helper option (1/2/3/4)" "1" AUR_HELPER_CHOICE
+
+case "$AUR_HELPER_CHOICE" in
+    1|yay)  AUR_HELPER="yay" ;;
+    2|paru) AUR_HELPER="paru" ;;
+    3|both) AUR_HELPER="both" ;;
+    4|none) AUR_HELPER="none" ;;
+    *)      AUR_HELPER="yay" ;;
+esac
+
 prompt_yes_no "Install extra utilities (fastfetch, libnotify, power-profiles-daemon, earlyoom)?" "Y" SETUP_EXTRAS
 prompt_yes_no "Automatically confirm pacman package installations (--noconfirm)? (No = Review pacman prompts)" "Y" PACMAN_NOCONFIRM
 
@@ -308,9 +330,56 @@ if [ "${PACMAN_NOCONFIRM:-true}" = true ]; then
     NOCONFIRM_FLAG="--noconfirm"
 fi
 
-# 1. Chaotic-AUR & yay
+install_aur_helper_from_source() {
+    local helper_pkg="$1"
+    msg_info "Building and installing ${helper_pkg} from AUR..."
+    run_cmd sudo pacman -S $NOCONFIRM_FLAG --needed git base-devel
+
+    local build_dir
+    build_dir=$(mktemp -d "/tmp/${helper_pkg}.XXXXXX")
+    if git clone "https://aur.archlinux.org/${helper_pkg}.git" "${build_dir}"; then
+        (
+            cd "${build_dir}" || exit 1
+            if [ -n "$NOCONFIRM_FLAG" ]; then
+                makepkg -si --noconfirm
+            else
+                makepkg -si
+            fi
+        )
+        rm -rf "${build_dir}"
+        msg_ok "${helper_pkg} built and installed successfully from AUR."
+    else
+        rm -rf "${build_dir}"
+        msg_err "Failed to clone ${helper_pkg} from AUR."
+        return 1
+    fi
+}
+
+install_aur_helper() {
+    local helper="$1"
+    local bin_pkg="${helper}-bin"
+
+    if [ "$SETUP_CHAOTIC_AUR" = true ]; then
+        msg_info "Attempting to install ${helper} from Chaotic-AUR..."
+        if sudo pacman -S $NOCONFIRM_FLAG --needed "${helper}"; then
+            msg_ok "${helper} installed successfully from Chaotic-AUR."
+            return 0
+        else
+            msg_warn "Could not install ${helper} from Chaotic-AUR. Falling back to AUR build..."
+        fi
+    fi
+
+    if [ "$EUID" -eq 0 ]; then
+        msg_warn "Cannot build ${helper} from AUR as root. Please run makepkg as a regular user."
+        return 1
+    fi
+
+    install_aur_helper_from_source "${bin_pkg}"
+}
+
+# 1. Chaotic-AUR & AUR Helper
 if [ "$SETUP_CHAOTIC_AUR" = true ]; then
-    msg_step "Setting up Chaotic-AUR & yay"
+    msg_step "Setting up Chaotic-AUR Repository"
     sudo pacman-key --recv-key 3056513887B78AEB --keyserver keyserver.ubuntu.com 2>/dev/null || sudo pacman-key --recv-key 3056513887B78AEB 2>/dev/null || true
     sudo pacman-key --lsign-key 3056513887B78AEB 2>/dev/null || true
     run_cmd sudo pacman -U $NOCONFIRM_FLAG 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst'
@@ -325,8 +394,17 @@ EOF"
     fi
 
     run_cmd sudo pacman -Sy $NOCONFIRM_FLAG
-    run_cmd sudo pacman -S $NOCONFIRM_FLAG --needed yay
-    msg_ok "Chaotic-AUR and yay configured."
+    msg_ok "Chaotic-AUR repository configured."
+fi
+
+if [ "$AUR_HELPER" != "none" ]; then
+    msg_step "Installing AUR Helper ($AUR_HELPER)"
+    if [ "$AUR_HELPER" = "yay" ] || [ "$AUR_HELPER" = "both" ]; then
+        install_aur_helper "yay"
+    fi
+    if [ "$AUR_HELPER" = "paru" ] || [ "$AUR_HELPER" = "both" ]; then
+        install_aur_helper "paru"
+    fi
 fi
 
 # 2. Snapper & GRUB Snapshots
@@ -536,3 +614,13 @@ CONGRATS
 echo -e "${RESET}"
 
 msg_ok "Kongrats! Your Arch Linux system is now fully tuned and snapshot-protected."
+echo ""
+msg_info "You are all set! Feel free to customize your system and install your favorite applications."
+echo -e "For example, to install the ${BOLD}Firefox${RESET} web browser, run:"
+echo -e "  ${GREEN}${BOLD}sudo pacman -S firefox${RESET}"
+if command -v yay &>/dev/null; then
+    echo -e "  ${CYAN}yay -S firefox${RESET}"
+elif command -v paru &>/dev/null; then
+    echo -e "  ${CYAN}paru -S firefox${RESET}"
+fi
+echo ""

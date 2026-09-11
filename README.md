@@ -28,7 +28,7 @@ An automated, interactive installer script for Arch Linux based on the architect
    - Configures `snap-pac` (pre/post pacman snapshots) and `grub-btrfs` / `grub-btrfsd` (boot into snapshots directly from GRUB).
    - Configures Btrfs swapfile on `@swap` (`/swap/swapfile`) and ZRAM (`zram-generator`).
    - Enables SSD TRIM timer (`fstrim.timer`).
-   - Optionally installs Chaotic-AUR repository, `yay` AUR helper, and utility packages.
+   - Optionally installs Chaotic-AUR repository, choice of AUR helper (`yay`, `paru`, or both), and utility packages.
 
 ## Quick Start
 

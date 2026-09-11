@@ -56,7 +56,7 @@ run_cmd() {
         msg_err "Command failed with exit code $status: ${cmd[*]}"
 
         # Smart diagnostics for package managers
-        if [[ "${cmd[*]}" =~ pacman|yay ]]; then
+        if [[ "${cmd[*]}" =~ pacman|yay|paru ]]; then
             if ! ping -c 1 -W 2 1.1.1.1 >/dev/null 2>&1 && ! ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
                 msg_warn "Network seems unreachable! Please check your internet connection."
             fi
@@ -127,7 +127,7 @@ run_eval() {
         msg_err "Command failed with exit code $status: ${cmd_str}"
 
         # Smart diagnostics for package managers
-        if [[ "${cmd_str}" =~ pacman|yay ]]; then
+        if [[ "${cmd_str}" =~ pacman|yay|paru ]]; then
             if ! ping -c 1 -W 2 1.1.1.1 >/dev/null 2>&1 && ! ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
                 msg_warn "Network seems unreachable! Please check your internet connection."
             fi
@@ -296,9 +296,9 @@ if [ -n "$GPU_DRIVERS" ]; then
     fi
 fi
 
-# Optional Chaotic AUR & yay Setup
+# Optional Chaotic AUR & AUR Helper Setup
 if [ "$ENABLE_CHAOTIC_AUR" = true ]; then
-    msg_step "Configuring Chaotic-AUR & Installing yay"
+    msg_step "Configuring Chaotic-AUR & Installing AUR Helper"
     pacman-key --recv-key 3056513887B78AEB --keyserver keyserver.ubuntu.com 2>/dev/null || pacman-key --recv-key 3056513887B78AEB 2>/dev/null || true
     pacman-key --lsign-key 3056513887B78AEB 2>/dev/null || true
     run_cmd pacman -U $NOCONFIRM_FLAG 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst'
@@ -313,7 +313,20 @@ EOF
     fi
 
     run_cmd pacman -Sy $NOCONFIRM_FLAG
-    run_cmd pacman -S $NOCONFIRM_FLAG --needed yay || msg_warn "Could not pre-install yay from chaotic-aur. You can install it manually later."
+    case "${AUR_HELPER:-yay}" in
+        paru)
+            run_cmd pacman -S $NOCONFIRM_FLAG --needed paru || msg_warn "Could not pre-install paru from chaotic-aur. You can install it manually later."
+            ;;
+        both)
+            # shellcheck disable=SC2086
+            run_cmd pacman -S $NOCONFIRM_FLAG --needed yay paru || msg_warn "Could not pre-install yay/paru from chaotic-aur. You can install them manually later."
+            ;;
+        none)
+            ;;
+        *)
+            run_cmd pacman -S $NOCONFIRM_FLAG --needed yay || msg_warn "Could not pre-install yay from chaotic-aur. You can install it manually later."
+            ;;
+    esac
 fi
 
 # Bootloader Installation (GRUB & Multi-Boot OS Prober)

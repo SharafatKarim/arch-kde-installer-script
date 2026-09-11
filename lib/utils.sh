@@ -61,7 +61,7 @@ run_cmd() {
         msg_err "Command failed with exit code $status: ${cmd[*]}"
 
         # Smart diagnostics for package managers
-        if [[ "${cmd[*]}" =~ pacman|pacstrap|reflector|yay ]]; then
+        if [[ "${cmd[*]}" =~ pacman|pacstrap|reflector|yay|paru ]]; then
             if ! ping -c 1 -W 2 1.1.1.1 >/dev/null 2>&1 && ! ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
                 msg_warn "Network seems unreachable! Please check your internet connection."
             fi
@@ -135,7 +135,7 @@ run_eval() {
         msg_err "Command failed with exit code $status: ${cmd_str}"
 
         # Smart diagnostics for package managers
-        if [[ "${cmd_str}" =~ pacman|pacstrap|reflector|yay ]]; then
+        if [[ "${cmd_str}" =~ pacman|pacstrap|reflector|yay|paru ]]; then
             if ! ping -c 1 -W 2 1.1.1.1 >/dev/null 2>&1 && ! ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
                 msg_warn "Network seems unreachable! Please check your internet connection."
             fi
