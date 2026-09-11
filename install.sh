@@ -171,9 +171,9 @@ if [ "$LOADED_FROM_CACHE" != true ]; then
 
     # 5. Graphics / GPU Driver Selection
     echo ""
-    local has_nvidia=false
-    local has_amd=false
-    local has_intel=false
+    has_nvidia=false
+    has_amd=false
+    has_intel=false
 
     if command -v lspci &>/dev/null; then
         lspci | grep -Ei 'vga|3d|display' | grep -qi 'nvidia' && has_nvidia=true

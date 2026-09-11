@@ -396,8 +396,8 @@ if [ "$SETUP_SWAP" = true ] && [ -n "$SWAP_SIZE" ]; then
         fi
 
         # Priority 10 for disk swap if ZRAM is also used (Scenario B: Hybrid)
-        local fstab_opts="defaults"
-        local swapon_opts=()
+        fstab_opts="defaults"
+        swapon_opts=()
         if [ "$SETUP_ZRAM" = true ]; then
             fstab_opts="defaults,pri=10"
             swapon_opts=("-p" "10")
@@ -409,7 +409,7 @@ if [ "$SETUP_SWAP" = true ] && [ -n "$SWAP_SIZE" ]; then
             msg_ok "Swapfile is already active."
         fi
 
-        local fstab_line="/swap/swapfile none swap ${fstab_opts} 0 0"
+        fstab_line="/swap/swapfile none swap ${fstab_opts} 0 0"
         if ! grep -q "/swap/swapfile" /etc/fstab; then
             echo "$fstab_line" | sudo tee -a /etc/fstab
         else
@@ -417,9 +417,9 @@ if [ "$SETUP_SWAP" = true ] && [ -n "$SWAP_SIZE" ]; then
         fi
 
         # Query hibernation parameters from Btrfs swapfile (ArchWiki)
-        local root_uuid=""
+        root_uuid=""
         root_uuid=$(findmnt -no UUID -T /swap/swapfile 2>/dev/null || true)
-        local resume_offset=""
+        resume_offset=""
         resume_offset=$(sudo btrfs inspect-internal map-swapfile -r /swap/swapfile 2>/dev/null || true)
         if [ -n "$root_uuid" ] && [ -n "$resume_offset" ]; then
             msg_ok "Btrfs swapfile ready (Priority: ${fstab_opts})."
