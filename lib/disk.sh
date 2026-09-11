@@ -66,6 +66,7 @@ setup_storage() {
         fi
 
         FORMAT_EFI=true
+        KEEP_HOME=false
 
         msg_step "Partitioning $TARGET_DISK with GPT layout (1GiB EFI + Btrfs Root)"
         # Create GPT partition table with 1GiB EFI (type ef00) and remaining space for Linux root (type 8300)
@@ -142,12 +143,20 @@ setup_storage() {
         # Reinstall / Reset check: Check if @home already exists on this partition
         KEEP_HOME=false
         msg_info "Checking if ${ROOT_PART} contains an existing Btrfs pool..."
-        if run_cmd mount "$ROOT_PART" /mnt 2>/dev/null; then
-            if [ -d /mnt/@home ]; then
-                msg_warn "Existing '@home' subvolume detected on ${ROOT_PART}."
-                prompt_yes_no "Do you want to PRESERVE the existing '@home' subvolume (keep user data intact)?" "Y" KEEP_HOME
+        local root_fstype=""
+        root_fstype=$(blkid -s TYPE -o value "$ROOT_PART" 2>/dev/null || lsblk -no FSTYPE "$ROOT_PART" 2>/dev/null || true)
+        if [ "$root_fstype" = "btrfs" ]; then
+            local probe_mnt="/tmp_probe_root"
+            mkdir -p "$probe_mnt"
+            if mount -o ro "$ROOT_PART" "$probe_mnt" 2>/dev/null; then
+                if [ -d "${probe_mnt}/@home" ]; then
+                    echo ""
+                    msg_warn "Existing '@home' subvolume detected on ${ROOT_PART}."
+                    prompt_yes_no "Do you want to PRESERVE the existing '@home' subvolume (keep user data intact)?" "Y" KEEP_HOME
+                fi
+                umount "$probe_mnt" 2>/dev/null || true
             fi
-            run_cmd umount /mnt 2>/dev/null || true
+            rmdir "$probe_mnt" 2>/dev/null || true
         fi
 
         # Confirmation
@@ -172,8 +181,7 @@ setup_storage() {
     msg_step "Preparing Partitions & Subvolumes"
 
     if [ "$FORMAT_EFI" = true ]; then
-        run_cmd mkfs.fat -F 32 "$EFI_PART"
-        run_cmd fatlabel "$EFI_PART" EFI
+        run_cmd mkfs.fat -F 32 -n EFI "$EFI_PART"
     else
         msg_info "Skipping EFI format on ${EFI_PART} as requested."
     fi
@@ -306,7 +314,7 @@ mount_existing_system() {
     local btrfs_opts="noatime,compress=zstd"
 
     run_cmd mount -o "${btrfs_opts},subvol=@" "$ROOT_PART" /mnt
-    run_cmd mkdir -p /mnt/{boot,home,.snapshots,var/log,var/cache/pacman/pkg}
+    run_cmd mkdir -p /mnt/{boot,home,.snapshots,swap,var/log,var/cache/pacman/pkg}
 
     # Mount other subvolumes if they exist
     mount -o "${btrfs_opts},subvol=@home" "$ROOT_PART" /mnt/home 2>/dev/null || true

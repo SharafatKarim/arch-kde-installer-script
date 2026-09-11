@@ -194,9 +194,9 @@ prompt_input() {
 
     read -r user_val
     if [ -z "$user_val" ]; then
-        eval "$var_name=\"$default_val\""
+        printf -v "$var_name" '%s' "$default_val"
     else
-        eval "$var_name=\"$user_val\""
+        printf -v "$var_name" '%s' "$user_val"
     fi
 }
 
@@ -221,7 +221,7 @@ prompt_password() {
         echo ""
 
         if [ "$pass1" = "$pass2" ]; then
-            eval "$var_name=\"$pass1\""
+            printf -v "$var_name" '%s' "$pass1"
             break
         else
             msg_err "Passwords do not match! Please try again."
@@ -250,10 +250,10 @@ prompt_yes_no() {
         fi
 
         if [ "$choice" = "y" ] || [ "$choice" = "yes" ]; then
-            eval "$var_name=true"
+            printf -v "$var_name" '%s' "true"
             break
         elif [ "$choice" = "n" ] || [ "$choice" = "no" ]; then
-            eval "$var_name=false"
+            printf -v "$var_name" '%s' "false"
             break
         else
             msg_warn "Please enter 'y' for yes or 'n' for no."

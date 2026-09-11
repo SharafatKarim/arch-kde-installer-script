@@ -178,9 +178,9 @@ prompt_input() {
 
     read -r user_val
     if [ -z "$user_val" ]; then
-        eval "$var_name=\"$default_val\""
+        printf -v "$var_name" '%s' "$default_val"
     else
-        eval "$var_name=\"$user_val\""
+        printf -v "$var_name" '%s' "$user_val"
     fi
 }
 
@@ -204,10 +204,10 @@ prompt_yes_no() {
         fi
 
         if [ "$choice" = "y" ] || [ "$choice" = "yes" ]; then
-            eval "$var_name=true"
+            printf -v "$var_name" '%s' "true"
             break
         elif [ "$choice" = "n" ] || [ "$choice" = "no" ]; then
-            eval "$var_name=false"
+            printf -v "$var_name" '%s' "false"
             break
         else
             msg_warn "Please enter 'y' for yes or 'n' for no."
@@ -228,6 +228,18 @@ BANNER
 echo -e "${RESET}"
 
 msg_step "Pre-flight Environment Check"
+
+# Privilege check
+if [ "$EUID" -eq 0 ]; then
+    msg_warn "Running post-install.sh directly as root is not recommended. It should be run as your regular user."
+else
+    msg_info "Validating sudo privileges..."
+    if ! sudo -v; then
+        msg_err "This script requires sudo privileges. Please run as a user in the wheel group."
+        exit 1
+    fi
+    msg_ok "Sudo privileges verified."
+fi
 
 # Network test
 msg_info "Checking internet connection..."
@@ -264,10 +276,10 @@ fi
 # 1. Chaotic-AUR & yay
 if [ "$SETUP_CHAOTIC_AUR" = true ]; then
     msg_step "Setting up Chaotic-AUR & yay"
-    run_cmd sudo pacman-key --recv-key 3056513887B78AEB --keyserver keyserver.ubuntu.com || true
-    run_cmd sudo pacman-key --lsign-key 3056513887B78AEB || true
-    run_cmd sudo pacman -U $NOCONFIRM_FLAG 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst' || true
-    run_cmd sudo pacman -U $NOCONFIRM_FLAG 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst' || true
+    sudo pacman-key --recv-key 3056513887B78AEB --keyserver keyserver.ubuntu.com 2>/dev/null || sudo pacman-key --recv-key 3056513887B78AEB 2>/dev/null || true
+    sudo pacman-key --lsign-key 3056513887B78AEB 2>/dev/null || true
+    run_cmd sudo pacman -U $NOCONFIRM_FLAG 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst'
+    run_cmd sudo pacman -U $NOCONFIRM_FLAG 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst'
 
     if ! grep -q "\[chaotic-aur\]" /etc/pacman.conf; then
         sudo bash -c "cat << 'EOF' >> /etc/pacman.conf
@@ -287,25 +299,34 @@ if [ "$SETUP_SNAPPER" = true ]; then
     msg_step "Configuring Snapper & GRUB Snapshot Integration"
     run_cmd sudo pacman -S $NOCONFIRM_FLAG --needed snapper snap-pac grub-btrfs inotify-tools
 
-    # Unmount /.snapshots if mounted
-    sudo umount /.snapshots 2>/dev/null || true
-    sudo rm -rf /.snapshots
+    # Check if snapper config already exists
+    if [ ! -f /etc/snapper/configs/root ]; then
+        # Unmount /.snapshots if mounted
+        sudo umount /.snapshots 2>/dev/null || true
+        sudo rm -rf /.snapshots
 
-    # Create root snapper configuration
-    run_cmd sudo snapper -c root create-config /
+        # Create root snapper configuration
+        run_cmd sudo snapper -c root create-config /
 
-    # Delete default nested subvolume and mount our dedicated @snapshots subvolume
-    sudo btrfs subvolume delete /.snapshots 2>/dev/null || true
-    sudo mkdir -p /.snapshots
-    run_cmd sudo mount -a
+        # Delete default nested subvolume created by snapper and mount our dedicated @snapshots subvolume
+        sudo btrfs subvolume delete /.snapshots 2>/dev/null || true
+        sudo mkdir -p /.snapshots
+        run_cmd sudo mount -a
+    else
+        msg_info "Snapper root configuration already exists. Ensuring /.snapshots is mounted..."
+        if ! mountpoint -q /.snapshots; then
+            sudo mount /.snapshots 2>/dev/null || sudo mount -a 2>/dev/null || true
+        fi
+    fi
 
     # Set secure permissions
     run_cmd sudo chmod 750 /.snapshots
     run_cmd sudo chown :wheel /.snapshots 2>/dev/null || true
 
     # Add root to SNAPPER_CONFIGS in /etc/conf.d/snapper if file exists
-    if [ -f /etc/conf.d/snapper ]; then
+    if [ -f /etc/conf.d/snapper ] && ! grep -q 'root' /etc/conf.d/snapper; then
         sudo sed -i 's/^SNAPPER_CONFIGS="\(.*\)"/SNAPPER_CONFIGS="\1 root"/' /etc/conf.d/snapper
+        sudo sed -i 's/=" /="/' /etc/conf.d/snapper
         sudo sed -i 's/  */ /g' /etc/conf.d/snapper
     fi
 
@@ -328,25 +349,31 @@ fi
 
 # 3. Swapfile Setup on @swap
 if [ "$SETUP_SWAP" = true ] && [ -n "$SWAP_SIZE" ]; then
+    SWAP_SIZE="${SWAP_SIZE%[gG]}"
+    SWAP_SIZE="${SWAP_SIZE%[iI][bB]}"
     msg_step "Configuring Btrfs Swapfile (${SWAP_SIZE}G)"
     sudo mkdir -p /swap
     # Ensure @swap is mounted
     if ! mountpoint -q /swap; then
-        sudo mount -a 2>/dev/null || true
+        sudo mount /swap 2>/dev/null || sudo mount -a 2>/dev/null || true
     fi
 
-    if [ ! -f /swap/swapfile ]; then
-        run_cmd sudo btrfs filesystem mkswapfile --size "${SWAP_SIZE}g" --uuid clear /swap/swapfile
-    fi
-    if ! swapon --show | grep -q "/swap/swapfile"; then
-        run_cmd sudo swapon /swap/swapfile
+    if ! mountpoint -q /swap; then
+        msg_warn "/swap is not mounted as a dedicated subvolume. Skipping swapfile creation to avoid snapshot conflicts on root."
     else
-        msg_ok "Swapfile is already active."
+        if [ ! -f /swap/swapfile ]; then
+            run_cmd sudo btrfs filesystem mkswapfile --size "${SWAP_SIZE}g" --uuid clear /swap/swapfile
+        fi
+        if ! swapon --show | grep -q "/swap/swapfile"; then
+            run_cmd sudo swapon /swap/swapfile
+        else
+            msg_ok "Swapfile is already active."
+        fi
+        if ! grep -q "/swap/swapfile" /etc/fstab; then
+            echo '/swap/swapfile none swap defaults 0 0' | sudo tee -a /etc/fstab
+        fi
+        msg_ok "Swapfile active at /swap/swapfile."
     fi
-    if ! grep -q "/swap/swapfile" /etc/fstab; then
-        echo '/swap/swapfile none swap defaults 0 0' | sudo tee -a /etc/fstab
-    fi
-    msg_ok "Swapfile active at /swap/swapfile."
 fi
 
 # 4. zram-generator
@@ -372,7 +399,9 @@ EOF"
     fi
 
     run_cmd sudo systemctl daemon-reload
-    run_cmd sudo systemctl restart systemd-zram-setup@zram0.service 2>/dev/null || run_cmd sudo systemctl start /dev/zram0 2>/dev/null || true
+    if ! sudo systemctl restart systemd-zram-setup@zram0.service 2>/dev/null; then
+        sudo systemctl start /dev/zram0 2>/dev/null || true
+    fi
     msg_ok "zram-generator configured and zswap disabled."
 fi
 

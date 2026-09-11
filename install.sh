@@ -49,6 +49,7 @@ if ! ping -c 1 -W 3 1.1.1.1 >/dev/null 2>&1 && ! ping -c 1 -W 3 8.8.8.8 >/dev/nu
     msg_warn "No active internet connection detected. (Required for fresh install, optional for rescue chroot)"
 else
     msg_ok "Internet connectivity verified."
+    timedatectl set-ntp true 2>/dev/null || true
 fi
 
 # Operation Mode Selection
@@ -116,8 +117,24 @@ if [ "$LOADED_FROM_CACHE" != true ]; then
     msg_step "Interactive System Configuration"
 
     # 1. Hostname & User
-    prompt_input "Enter Hostname" "archlinux" HOSTNAME
-    prompt_input "Enter Non-Root Username" "arch" USERNAME
+    while true; do
+        prompt_input "Enter Hostname" "archlinux" HOSTNAME
+        if [[ "$HOSTNAME" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]]; then
+            break
+        else
+            msg_warn "Invalid hostname '$HOSTNAME'. Must start with an alphanumeric character and contain only letters, numbers, hyphens, or dots."
+        fi
+    done
+
+    while true; do
+        prompt_input "Enter Non-Root Username" "arch" USERNAME
+        if [[ "$USERNAME" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
+            break
+        else
+            msg_warn "Invalid username '$USERNAME'. Must start with a lowercase letter or underscore, and contain only lowercase letters, digits, underscores, or hyphens."
+        fi
+    done
+
     prompt_password "Enter password for '$USERNAME'" USER_PASSWORD
     prompt_password "Enter Root password" ROOT_PASSWORD
 
@@ -154,29 +171,46 @@ if [ "$LOADED_FROM_CACHE" != true ]; then
 
     # 5. Graphics / GPU Driver Selection
     echo ""
-    GPU_DETECTED="Generic / Mesa"
-    GPU_PKG="mesa"
-    if lspci | grep -Ei 'vga|3d|display' | grep -qi 'nvidia'; then
+    local has_nvidia=false
+    local has_amd=false
+    local has_intel=false
+
+    if command -v lspci &>/dev/null; then
+        lspci | grep -Ei 'vga|3d|display' | grep -qi 'nvidia' && has_nvidia=true
+        lspci | grep -Ei 'vga|3d|display' | grep -qi 'amd' && has_amd=true
+        lspci | grep -Ei 'vga|3d|display' | grep -qi 'intel' && has_intel=true
+    fi
+
+    if [ "$has_nvidia" = true ] && [ "$has_intel" = true ]; then
+        GPU_DETECTED="Intel + NVIDIA (Hybrid / Optimus)"
+        GPU_PKG="mesa vulkan-intel intel-media-driver lib32-mesa lib32-vulkan-intel nvidia-open-dkms nvidia-utils nvidia-settings lib32-nvidia-utils"
+    elif [ "$has_nvidia" = true ] && [ "$has_amd" = true ]; then
+        GPU_DETECTED="AMD + NVIDIA (Hybrid / Optimus)"
+        GPU_PKG="mesa vulkan-radeon lib32-mesa lib32-vulkan-radeon nvidia-open-dkms nvidia-utils nvidia-settings lib32-nvidia-utils"
+    elif [ "$has_nvidia" = true ]; then
         GPU_DETECTED="NVIDIA"
-        GPU_PKG="nvidia-dkms nvidia-utils"
-    elif lspci | grep -Ei 'vga|3d|display' | grep -qi 'amd'; then
-        GPU_DETECTED="AMD"
-        GPU_PKG="mesa vulkan-radeon xf86-video-amdgpu"
-    elif lspci | grep -Ei 'vga|3d|display' | grep -qi 'intel'; then
-        GPU_DETECTED="Intel"
-        GPU_PKG="mesa vulkan-intel"
+        GPU_PKG="nvidia-open-dkms nvidia-utils nvidia-settings lib32-nvidia-utils"
+    elif [ "$has_amd" = true ]; then
+        GPU_DETECTED="AMD (Radeon)"
+        GPU_PKG="mesa vulkan-radeon lib32-mesa lib32-vulkan-radeon"
+    elif [ "$has_intel" = true ]; then
+        GPU_DETECTED="Intel (HD/Iris/Arc)"
+        GPU_PKG="mesa vulkan-intel intel-media-driver lib32-mesa lib32-vulkan-intel"
+    else
+        GPU_DETECTED="Generic / Mesa"
+        GPU_PKG="mesa vulkan-intel vulkan-radeon lib32-mesa"
     fi
 
     msg_info "Detected GPU: ${CYAN}${GPU_DETECTED}${RESET}"
     echo "  1) Auto / Detected ($GPU_DETECTED -> $GPU_PKG)"
-    echo "  2) Open-Source Mesa (Intel / AMD / Generic Mesa + Vulkan)"
-    echo "  3) NVIDIA DKMS (Proprietary drivers for Nvidia cards)"
+    echo "  2) Open-Source Mesa (Intel / AMD / Generic Mesa + Vulkan + 32-bit)"
+    echo "  3) NVIDIA DKMS (Modern open-kernel drivers for Nvidia + 32-bit)"
     echo "  4) None (Skip GPU driver installation)"
     prompt_input "Select graphics driver option (1/2/3/4)" "1" GPU_CHOICE
 
     case "$GPU_CHOICE" in
-        2) GPU_DRIVERS="mesa vulkan-intel vulkan-radeon" ;;
-        3) GPU_DRIVERS="nvidia-dkms nvidia-utils" ;;
+        2) GPU_DRIVERS="mesa vulkan-intel vulkan-radeon intel-media-driver lib32-mesa lib32-vulkan-intel lib32-vulkan-radeon" ;;
+        3) GPU_DRIVERS="nvidia-open-dkms nvidia-utils nvidia-settings lib32-nvidia-utils" ;;
         4) GPU_DRIVERS="" ;;
         *) GPU_DRIVERS="$GPU_PKG" ;;
     esac
@@ -325,7 +359,16 @@ fi
 msg_step "Verifying Installation Health"
 
 # 1. Kernel and Initramfs check
-if [ -f /mnt/boot/vmlinuz-* ] && [ -f /mnt/boot/initramfs-*.img ]; then
+has_kernel=false
+has_initramfs=false
+for f in /mnt/boot/vmlinuz-*; do
+    [ -f "$f" ] && has_kernel=true && break
+done
+for f in /mnt/boot/initramfs-*.img; do
+    [ -f "$f" ] && has_initramfs=true && break
+done
+
+if [ "$has_kernel" = true ] && [ "$has_initramfs" = true ]; then
     msg_ok "Kernel and initramfs images present in /boot."
 else
     msg_warn "Kernel/initramfs images not found in /boot."
@@ -346,9 +389,12 @@ else
 fi
 
 # 4. User and Sudo check
-if grep -q "^${USERNAME}:" /mnt/etc/passwd 2>/dev/null; then
+if [ -n "$USERNAME" ] && grep -q "^${USERNAME}:" /mnt/etc/passwd 2>/dev/null; then
     msg_ok "User account '${USERNAME}' created."
 fi
+
+# Remove credentials cache file upon successful completion
+rm -f "$CACHE_FILE" 2>/dev/null || true
 
 echo -e "\n${GREEN}${BOLD}"
 cat << "CONGRATS"

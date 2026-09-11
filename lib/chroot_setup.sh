@@ -177,6 +177,10 @@ fi
 run_cmd hwclock --systohc
 
 # Localization
+LOCALE="${LOCALE%.UTF-8}"
+LOCALE="${LOCALE%.utf8}"
+LOCALE="${LOCALE:-en_US}"
+
 if grep -q "^#*${LOCALE}\.UTF-8 UTF-8" /etc/locale.gen 2>/dev/null; then
     run_cmd sed -i "s/^#*${LOCALE}\.UTF-8 UTF-8/${LOCALE}.UTF-8 UTF-8/" /etc/locale.gen
 else
@@ -184,7 +188,7 @@ else
 fi
 run_cmd locale-gen
 run_eval "echo 'LANG=${LOCALE}.UTF-8' > /etc/locale.conf"
-run_eval "echo 'KEYMAP=${KEYMAP}' > /etc/vconsole.conf"
+run_eval "echo 'KEYMAP=${KEYMAP:-us}' > /etc/vconsole.conf"
 
 # Hostname & Hosts
 msg_step "Configuring Hostname & Networking"
@@ -208,15 +212,24 @@ if [ -n "$USERNAME" ]; then
         msg_info "User '$USERNAME' already exists. Updating groups and shell..."
         run_cmd usermod -aG wheel -s /bin/bash "$USERNAME"
     else
-        # -m won't overwrite existing home directory if it already exists
-        run_cmd useradd -m -G wheel -s /bin/bash "$USERNAME" || run_cmd useradd -M -G wheel -s /bin/bash "$USERNAME"
+        if [ -d "/home/$USERNAME" ]; then
+            run_cmd useradd -M -G wheel -s /bin/bash "$USERNAME"
+        else
+            run_cmd useradd -m -G wheel -s /bin/bash "$USERNAME"
+        fi
     fi
     echo "${USERNAME}:${USER_PASSWORD}" | chpasswd
-    # Ensure correct permissions on user home directory if preserving
+
+    # Populate shell skel files if missing in user's home directory
     if [ -d "/home/$USERNAME" ]; then
+        if [ ! -f "/home/${USERNAME}/.bashrc" ] && [ -f /etc/skel/.bashrc ]; then
+            cp -a /etc/skel/. "/home/${USERNAME}/"
+        fi
         chown -R "${USERNAME}:${USERNAME}" "/home/$USERNAME" 2>/dev/null || true
     fi
+
     # Enable %wheel in sudoers
+    run_cmd mkdir -p /etc/sudoers.d
     run_eval "echo '%wheel ALL=(ALL:ALL) ALL' > /etc/sudoers.d/10-wheel"
     run_cmd chmod 0440 /etc/sudoers.d/10-wheel
     msg_ok "User '$USERNAME' configured with sudo privileges."
@@ -244,15 +257,40 @@ if [ -n "$GPU_DRIVERS" ]; then
     msg_step "Installing GPU Drivers ($GPU_DRIVERS)"
     # shellcheck disable=SC2086
     run_cmd pacman -S $NOCONFIRM_FLAG --needed $GPU_DRIVERS
+
+    if [[ "$GPU_DRIVERS" =~ nvidia ]]; then
+        msg_step "Configuring NVIDIA Modesetting & Power Management (ArchWiki)"
+        # Enable nvidia-drm.modeset=1 for Wayland / Plasma in GRUB
+        if grep -q "GRUB_CMDLINE_LINUX_DEFAULT" /etc/default/grub 2>/dev/null; then
+            if ! grep -q "nvidia-drm.modeset=1" /etc/default/grub; then
+                run_cmd sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="\(.*\)"/GRUB_CMDLINE_LINUX_DEFAULT="\1 nvidia-drm.modeset=1"/' /etc/default/grub
+                run_cmd sed -i 's/=" /="/' /etc/default/grub
+            fi
+        fi
+
+        # Enable NVIDIA sleep & suspend services to preserve VRAM across sleep
+        for srv in nvidia-suspend.service nvidia-hibernate.service nvidia-resume.service; do
+            systemctl enable "$srv" 2>/dev/null || true
+        done
+
+        # Configure mkinitcpio early KMS for NVIDIA modules
+        if grep -q "^MODULES=" /etc/mkinitcpio.conf 2>/dev/null; then
+            if ! grep -q "nvidia" /etc/mkinitcpio.conf; then
+                run_cmd sed -i 's/^MODULES=(\(.*\))/MODULES=(\1 nvidia nvidia_modeset nvidia_uvm nvidia_drm)/' /etc/mkinitcpio.conf
+                run_cmd sed -i 's/(  */(/' /etc/mkinitcpio.conf
+                run_cmd mkinitcpio -P
+            fi
+        fi
+    fi
 fi
 
 # Optional Chaotic AUR & yay Setup
 if [ "$ENABLE_CHAOTIC_AUR" = true ]; then
     msg_step "Configuring Chaotic-AUR & Installing yay"
-    run_cmd pacman-key --recv-key 3056513887B78AEB --keyserver keyserver.ubuntu.com || true
-    run_cmd pacman-key --lsign-key 3056513887B78AEB || true
-    run_cmd pacman -U $NOCONFIRM_FLAG 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst' || true
-    run_cmd pacman -U $NOCONFIRM_FLAG 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst' || true
+    pacman-key --recv-key 3056513887B78AEB --keyserver keyserver.ubuntu.com 2>/dev/null || pacman-key --recv-key 3056513887B78AEB 2>/dev/null || true
+    pacman-key --lsign-key 3056513887B78AEB 2>/dev/null || true
+    run_cmd pacman -U $NOCONFIRM_FLAG 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst'
+    run_cmd pacman -U $NOCONFIRM_FLAG 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst'
 
     if ! grep -q "\[chaotic-aur\]" /etc/pacman.conf; then
         cat << 'EOF' >> /etc/pacman.conf
@@ -277,7 +315,7 @@ else
     run_eval "echo 'GRUB_DISABLE_OS_PROBER=false' >> /etc/default/grub"
 fi
 
-run_cmd grub-install --target=x86_64-efi --bootloader-id=GRUB --efi-directory=/boot
+run_cmd grub-install --target=x86_64-efi --bootloader-id=GRUB --efi-directory=/boot --recheck
 run_cmd grub-mkconfig -o /boot/grub/grub.cfg
 
 if [ -d /boot/EFI/Microsoft ] || os-prober 2>/dev/null | grep -qi "Windows"; then
@@ -322,6 +360,8 @@ if [ "$INSTALL_DESKTOP" = true ]; then
             plasma-systemmonitor
             spectacle
             ark
+            kde-gtk-config
+            breeze-gtk
             noto-fonts
             noto-fonts-emoji
             noto-fonts-cjk

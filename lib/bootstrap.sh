@@ -25,7 +25,11 @@ bootstrap_system() {
     if [ "$enable_reflector" = true ]; then
         if command -v reflector &>/dev/null; then
             msg_info "Sorting fastest 10 HTTPS mirrors using reflector..."
-            run_cmd reflector --latest 10 --protocol https --sort rate --save /etc/pacman.d/mirrorlist 2>/dev/null || msg_warn "Reflector ranking skipped/failed. Keeping default mirrors."
+            if reflector --latest 10 --protocol https --sort rate --save /etc/pacman.d/mirrorlist 2>/dev/null; then
+                msg_ok "Mirrors sorted successfully."
+            else
+                msg_warn "Reflector ranking skipped or timed out. Keeping default mirrors."
+            fi
         else
             msg_warn "reflector command not found in live environment. Keeping default mirrors."
         fi
@@ -59,7 +63,10 @@ bootstrap_system() {
     msg_info "Installing base packages to /mnt:"
     echo -e "${CYAN}${base_pkgs[*]}${RESET}"
 
-    run_cmd pacstrap -K /mnt "${base_pkgs[@]}"
+    local pacstrap_flags=("-K")
+    [ "$pacman_noconfirm" = true ] && pacstrap_flags+=("-N")
+
+    run_cmd pacstrap "${pacstrap_flags[@]}" /mnt "${base_pkgs[@]}"
 
     # Copy optimized mirrorlist to new system
     if [ -f /etc/pacman.d/mirrorlist ]; then
